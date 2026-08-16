@@ -51,6 +51,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
       this.fragments = encodeUR(value, capacity, walletID ?? null);
       this.setState(
         {
+          index: 0,
           total: this.fragments.length,
           hideControls,
           displayQRCode: true,
@@ -85,6 +86,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
     try {
       this.fragments = encodeUR(value, capacity, walletID ?? null, 'BBQR');
       this.setState({
+        index: 0,
         total: this.fragments.length,
         displayQRCode: true,
       });
@@ -101,6 +103,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
     try {
       this.fragments = encodeUR(value, capacity, walletID ?? null, 'URv2');
       this.setState({
+        index: 0,
         total: this.fragments.length,
         displayQRCode: true,
       });
@@ -137,8 +140,8 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
     }
   };
 
-  onError = () => {
-    console.log('Data is too large for QR Code.');
+  onError = (error?: unknown) => {
+    console.log('Could not render dynamic QR code:', error);
     this.setState({ displayQRCode: false });
   };
 
@@ -153,6 +156,9 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
       );
     }
 
+    const qrValue = currentFragment?.toUpperCase() ?? '';
+    const encoding = qrValue.startsWith('B$') ? 'alphanumeric' : undefined;
+
     return (
       <View style={animatedQRCodeStyle.container}>
         <TouchableOpacity
@@ -166,10 +172,11 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
             <View style={animatedQRCodeStyle.qrcodeContainer}>
               <QRCode
                 isLogoRendered={false}
-                value={currentFragment.toUpperCase()}
+                value={qrValue}
                 size={this.state.qrCodeHeight}
                 isMenuAvailable={false}
                 ecl="L"
+                encoding={encoding}
                 onError={this.onError}
               />
             </View>
