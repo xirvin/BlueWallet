@@ -63,6 +63,84 @@ describe('MuSig2 BIP327/BIP328/BIP373', () => {
     assert.notStrictEqual(wallet._getExternalAddressByIndex(0), wallet._getExternalAddressByIndex(1));
   });
 
+  it('serializes and restores aggregate key plus two-signer coordinator metadata', () => {
+    const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setLabel('MuSig2 coordinator test');
+    wallet.setParticipants([
+      {
+        publicKeyHex: uint8ArrayToHex(BIP327_KEYS[0]),
+        masterFingerprint: 'A1B2C3D4',
+        derivationPath: 'm/86h/0h/0h',
+      },
+      {
+        publicKeyHex: uint8ArrayToHex(BIP327_KEYS[1]),
+        masterFingerprint: '01020304',
+        derivationPath: "m/86'/0'/1'",
+      },
+    ]);
+
+    const aggregateHex = uint8ArrayToHex(getPlainPublicKey(keyAgg(BIP327_KEYS.slice(0, 2))));
+    const walletId = wallet.getID();
+    const firstAddress = wallet._getExternalAddressByIndex(0);
+    const serialized = JSON.stringify(wallet);
+    const restored = HDTaprootMuSig2Wallet.fromJson(serialized);
+
+    assert.ok(restored instanceof HDTaprootMuSig2Wallet);
+    assert.strictEqual(restored.type, HDTaprootMuSig2Wallet.type);
+    assert.strictEqual(restored.getLabel(), 'MuSig2 coordinator test');
+    assert.strictEqual(uint8ArrayToHex(restored.getAggregatePublicKey()), aggregateHex);
+    assert.strictEqual(restored.getID(), walletId);
+    assert.strictEqual(restored._getExternalAddressByIndex(0), firstAddress);
+    assert.strictEqual(restored.hasCompleteParticipantMetadata(), true);
+    assert.deepStrictEqual(restored.getParticipants(), [
+      {
+        publicKeyHex: uint8ArrayToHex(BIP327_KEYS[0]),
+        masterFingerprint: 'a1b2c3d4',
+        derivationPath: "m/86'/0'/0'",
+      },
+      {
+        publicKeyHex: uint8ArrayToHex(BIP327_KEYS[1]),
+        masterFingerprint: '01020304',
+        derivationPath: "m/86'/0'/1'",
+      },
+    ]);
+
+    const mutableCopy = restored.getParticipants();
+    mutableCopy[0].masterFingerprint = 'ffffffff';
+    assert.strictEqual(restored.getParticipants()[0].masterFingerprint, 'a1b2c3d4');
+
+    const tampered = JSON.parse(serialized);
+    tampered._aggregatePublicKeyHex = uint8ArrayToHex(BIP327_KEYS[2]);
+    assert.throws(
+      () => HDTaprootMuSig2Wallet.fromJson(JSON.stringify(tampered)),
+      /aggregate public key does not match participant metadata/,
+    );
+  });
+
+  it('rejects incomplete or ambiguous two-signer metadata', () => {
+    const wallet = new HDTaprootMuSig2Wallet();
+    const signer = {
+      publicKeyHex: uint8ArrayToHex(BIP327_KEYS[0]),
+      masterFingerprint: 'a1b2c3d4',
+      derivationPath: "m/86'/0'/0'",
+    };
+
+    assert.throws(() => wallet.setParticipants([signer]), /exactly two signers/);
+    assert.throws(() => wallet.setParticipants([signer, signer]), /must be distinct/);
+    assert.throws(
+      () =>
+        wallet.setParticipants([
+          signer,
+          {
+            publicKeyHex: uint8ArrayToHex(BIP327_KEYS[1]),
+            masterFingerprint: 'not-a-fingerprint',
+            derivationPath: "m/86'/0'/1'",
+          },
+        ]),
+      /fingerprint/,
+    );
+  });
+
   it('creates and verifies a complete 2-of-2 MuSig2 signature and consumes secret nonces', () => {
     const secretKeys = [1n, 2n].map(value => secp.etc.numberToBytesBE(value));
     const publicKeys = secretKeys.map(secretKey => secp.getPublicKey(secretKey, true));
