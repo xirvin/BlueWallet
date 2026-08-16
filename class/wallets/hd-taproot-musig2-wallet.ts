@@ -12,8 +12,8 @@ const BIP328_CHAIN_CODE = hexToUint8Array('868087ca02a6f974c4598924c36b57762d32c
 
 export type MuSig2ParticipantMetadata = {
   publicKeyHex: string;
-  masterFingerprint: string;
-  derivationPath: string;
+  masterFingerprint?: string;
+  derivationPath?: string;
 };
 
 function normalizeFingerprint(fingerprint: string): string {
@@ -48,11 +48,19 @@ function normalizeDerivationPath(path: string): string {
 function normalizeParticipant(participant: MuSig2ParticipantMetadata): MuSig2ParticipantMetadata {
   const publicKey = hexToUint8Array(participant.publicKeyHex.trim());
   parsePlainPublicKey(publicKey);
-  return {
+
+  const normalized: MuSig2ParticipantMetadata = {
     publicKeyHex: uint8ArrayToHex(publicKey),
-    masterFingerprint: normalizeFingerprint(participant.masterFingerprint),
-    derivationPath: normalizeDerivationPath(participant.derivationPath),
   };
+
+  if (participant.masterFingerprint?.trim()) {
+    normalized.masterFingerprint = normalizeFingerprint(participant.masterFingerprint);
+  }
+  if (participant.derivationPath?.trim()) {
+    normalized.derivationPath = normalizeDerivationPath(participant.derivationPath);
+  }
+
+  return normalized;
 }
 
 /**
@@ -130,12 +138,27 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     return this;
   }
 
+  setParticipantPublicKeys(publicKeys: Array<Uint8Array | string>): this {
+    return this.setParticipants(
+      publicKeys.map(publicKey => ({
+        publicKeyHex: typeof publicKey === 'string' ? publicKey : uint8ArrayToHex(publicKey),
+      })),
+    );
+  }
+
   getParticipants(): MuSig2ParticipantMetadata[] {
     return this._participants.map(participant => ({ ...participant }));
   }
 
-  hasCompleteParticipantMetadata(): boolean {
+  hasParticipantPublicKeys(): boolean {
     return this._participants.length === 2 && Boolean(this._aggregatePublicKeyHex);
+  }
+
+  hasCompleteParticipantMetadata(): boolean {
+    return (
+      this.hasParticipantPublicKeys() &&
+      this._participants.every(participant => Boolean(participant.masterFingerprint && participant.derivationPath))
+    );
   }
 
   getID(): string {

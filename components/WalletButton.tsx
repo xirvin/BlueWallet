@@ -4,6 +4,7 @@ import { useLocale } from '@react-navigation/native';
 
 import loc from '../loc';
 import { Theme, useTheme } from './themes';
+import MuSig2WalletButton from './MuSig2WalletButton';
 
 interface ButtonDetails {
   image: ImageSourcePropType;
@@ -78,22 +79,25 @@ const WalletButton: React.FC<WalletButtonProps> = ({ buttonType, testID, onPress
   });
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      testID={testID}
-      onPress={onPress}
-      style={({ pressed }) => [pressed && styles.pressed, styles.touchable]}
-    >
-      <View style={[styles.container, stylesHook.buttonContainer]}>
-        <View style={styles.content}>
-          <Image style={styles.image} source={details.image} />
-          <View style={styles.textContainer}>
-            <Text style={stylesHook.textTitle}>{details.title}</Text>
-            <Text style={stylesHook.textExplain}>{details.explain}</Text>
+    <>
+      <Pressable
+        accessibilityRole="button"
+        testID={testID}
+        onPress={onPress}
+        style={({ pressed }) => [pressed && styles.pressed, styles.touchable]}
+      >
+        <View style={[styles.container, stylesHook.buttonContainer]}>
+          <View style={styles.content}>
+            <Image style={styles.image} source={details.image} />
+            <View style={styles.textContainer}>
+              <Text style={stylesHook.textTitle}>{details.title}</Text>
+              <Text style={stylesHook.textExplain}>{details.explain}</Text>
+            </View>
           </View>
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+      {buttonType === 'Vault' ? <MuSig2WalletButton size={size} /> : null}
+    </>
   );
 };
 
