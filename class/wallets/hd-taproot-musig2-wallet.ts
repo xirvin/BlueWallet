@@ -143,6 +143,20 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     return hexToUint8Array(this._aggregatePublicKeyHex);
   }
 
+  getMuSig2RootFingerprint(): string {
+    return uint8ArrayToHex(bitcoin.crypto.hash160(this.getAggregatePublicKey()).slice(0, 4)).toUpperCase();
+  }
+
+  /**
+   * WalletDetails expects HD wallets to expose a master fingerprint through
+   * this inherited method. A MuSig2 coordinator has no mnemonic/master private
+   * key, so its meaningful fingerprint is the BIP32 fingerprint of the BIP328
+   * synthetic aggregate root instead of a fingerprint derived from `secret`.
+   */
+  getMasterFingerprintHex(): string {
+    return this.getMuSig2RootFingerprint();
+  }
+
   setParticipants(participants: MuSig2ParticipantMetadata[]): this {
     if (participants.length !== 2) throw new Error('MuSig2 coordinator wallet currently requires exactly two signers');
 

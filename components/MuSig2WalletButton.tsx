@@ -39,6 +39,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
   const [signer1PublicKey, setSigner1PublicKey] = useState('');
   const [signer2PublicKey, setSigner2PublicKey] = useState('');
   const [receivingAddress, setReceivingAddress] = useState('');
+  const [rootFingerprint, setRootFingerprint] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   const stylesHook = StyleSheet.create({
@@ -92,6 +93,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
       addWallet(wallet);
       await saveToDisk();
       setReceivingAddress(address);
+      setRootFingerprint(wallet.getMuSig2RootFingerprint());
       triggerHapticFeedback(HapticFeedbackTypes.NotificationSuccess);
     } catch (error: any) {
       presentAlert({ message: error?.message ?? String(error) });
@@ -141,11 +143,14 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
                 <BlueText testID="MuSig2RootDerivationPath" style={[styles.helper, stylesHook.helper]}>
                   MuSig2 root: {HDTaprootMuSig2Wallet.derivationPath}
                 </BlueText>
+                <BlueText selectable testID="MuSig2RootFingerprint" style={[styles.helper, stylesHook.helper]}>
+                  MuSig2 root fingerprint: {rootFingerprint}
+                </BlueText>
                 <BlueText testID="MuSig2AddressDerivationPath" style={[styles.helper, stylesHook.helper]}>
                   Address derivation: {HDTaprootMuSig2Wallet.derivationPath}/0/0
                 </BlueText>
                 <BlueText style={[styles.helper, stylesHook.helper]}>
-                  This is the first BIP328-derived Taproot receive address for the aggregate MuSig2 key. External receive addresses continue as m/0/1, m/0/2, and so on.
+                  This is the first BIP328-derived Taproot receive address for the aggregate MuSig2 key. External receive addresses continue as m/0/1, m/0/2, and so on. The MuSig2 root fingerprint identifies the synthetic aggregate root, not either hardware signer.
                 </BlueText>
                 <BlueSpacing40 />
                 <Button testID="MuSig2Done" title="Done" onPress={close} />
