@@ -126,6 +126,12 @@ export type SendDetailsStackParamList = {
     isShowOpenScanner?: boolean;
     onBarScanned?: string;
   };
+  MuSig2Round1QRCode: {
+    memo?: string;
+    psbtBase64: string;
+    walletID: string;
+    launchedBy?: string;
+  };
   Success: {
     fee?: number;
     amount: number;
