@@ -24,6 +24,7 @@ const PsbtWithHardwareWallet = lazy(() => import('../screen/send/psbtWithHardwar
 const CreateTransaction = lazy(() => import('../screen/send/create'));
 const PsbtMultisig = lazy(() => import('../screen/send/psbtMultisig'));
 const PsbtMultisigQRCode = lazy(() => import('../screen/send/PsbtMultisigQRCode'));
+const MuSig2Round1QRCode = lazy(() => import('../screen/send/MuSig2Round1QRCode'));
 const Success = lazy(() => import('../screen/send/success'));
 const SelectWallet = lazy(() => import('../screen/wallets/SelectWallet'));
 const CoinControl = lazy(() => import('../screen/send/CoinControl'));
@@ -36,6 +37,7 @@ const PsbtWithHardwareWalletComponent = withLazySuspense(PsbtWithHardwareWallet)
 const CreateTransactionComponent = withLazySuspense(CreateTransaction);
 const PsbtMultisigComponent = withLazySuspense(PsbtMultisig);
 const PsbtMultisigQRCodeComponent = withLazySuspense(PsbtMultisigQRCode);
+const MuSig2Round1QRCodeComponent = withLazySuspense(MuSig2Round1QRCode);
 const SuccessComponent = withLazySuspense(Success);
 const SelectWalletComponent = withLazySuspense(SelectWallet);
 const CoinControlComponent = withLazySuspense(CoinControl);
@@ -159,6 +161,11 @@ const SendDetailsStack = () => {
         name="PsbtMultisigQRCode"
         component={PsbtMultisigQRCodeComponent}
         options={navigationStyle({ title: loc.multisig.header })(theme)}
+      />
+      <Stack.Screen
+        name="MuSig2Round1QRCode"
+        component={MuSig2Round1QRCodeComponent}
+        options={navigationStyle({ title: 'MuSig2 Round 1', gestureEnabled: false, fullScreenGestureEnabled: false })(theme)}
       />
       <Stack.Screen
         name="Success"
