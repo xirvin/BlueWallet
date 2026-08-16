@@ -30,6 +30,7 @@ import * as fs from '../../blue_modules/fs';
 import triggerHapticFeedback, { HapticFeedbackTypes } from '../../blue_modules/hapticFeedback';
 import BlueText from '../../components/BlueText';
 import { HDSegwitBech32Wallet } from '../../class/wallets/hd-segwit-bech32-wallet';
+import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { MultisigHDWallet } from '../../class/wallets/multisig-hd-wallet';
 import { WatchOnlyWallet } from '../../class/wallets/watch-only-wallet';
 import { ContactList } from '../../class/contact-list';
@@ -635,6 +636,21 @@ const SendDetails = () => {
       0,
     );
 
+    if (wallet.type === HDTaprootMuSig2Wallet.type) {
+      const muSig2Wallet = wallet as HDTaprootMuSig2Wallet;
+      if (!muSig2Wallet.hasCompleteExtendedParticipantMetadata()) {
+        throw new Error('MuSig2 spending requires two signer [fingerprint/path]xpub key expressions');
+      }
+      navigation.navigate('MuSig2Round1QRCode', {
+        memo: transactionMemo,
+        psbtBase64: psbt.toBase64(),
+        walletID: wallet.getID(),
+        launchedBy: routeParams.launchedBy,
+      });
+      setIsLoading(false);
+      return;
+    }
+
     if (tx && routeParams.launchedBy && psbt) {
       console.warn('navigating back to ', routeParams.launchedBy);
 
@@ -975,7 +991,7 @@ const SendDetails = () => {
       });
       return;
     }
-    // Add new recipient as usual if all recipients are complete
+    // Add new recipient as usual if all addresses are complete
     setAddresses(prevAddresses => [...prevAddresses, { address: '', key: String(Math.random()), unit: amountUnit }]);
     // Wait for the state to update before scrolling
     setTimeout(() => {
