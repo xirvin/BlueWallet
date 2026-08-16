@@ -75,7 +75,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   private _participants: MuSig2ParticipantMetadata[] = [];
 
   static fromJson(obj: string): HDTaprootMuSig2Wallet {
-    const wallet = super.fromJson(obj) as HDTaprootMuSig2Wallet;
+    const wallet = super.fromJson(obj) as unknown as HDTaprootMuSig2Wallet;
 
     if (wallet._participants?.length) {
       const storedAggregate = wallet._aggregatePublicKeyHex.toLowerCase();
