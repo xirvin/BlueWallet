@@ -43,7 +43,7 @@ const MuSig2Round1QRCode: React.FC = () => {
 
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
-    warning: { color: colors.warningForegroundColor },
+    warning: { color: colors.redText },
     exportButton: { backgroundColor: colors.buttonDisabledBackgroundColor },
   });
 
