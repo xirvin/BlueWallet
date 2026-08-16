@@ -13,6 +13,7 @@ import {
 import { useLocale } from '@react-navigation/native';
 
 import triggerHapticFeedback, { HapticFeedbackTypes } from '../blue_modules/hapticFeedback';
+import { normalizeMuSig2SignerInput } from '../blue_modules/musig2/bsms';
 import { createMuSig2DryRun } from '../blue_modules/musig2/dry-run';
 import { HDTaprootMuSig2Wallet } from '../class/wallets/hd-taproot-musig2-wallet';
 import { navigate as navigateRoot } from '../NavigationService';
@@ -92,7 +93,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
     try {
       const wallet = new HDTaprootMuSig2Wallet();
       wallet.setLabel('MuSig2 Vault');
-      wallet.setParticipantKeyExpressions([signer1PublicKey, signer2PublicKey]);
+      wallet.setParticipantKeyExpressions([signer1PublicKey, signer2PublicKey].map(normalizeMuSig2SignerInput));
 
       const address = wallet._getExternalAddressByIndex(0);
       if (!address || !address.startsWith('bc1p')) throw new Error('Could not derive a Taproot receiving address');
@@ -158,7 +159,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
           <SafeAreaScrollView style={[styles.flex1, stylesHook.modal]} contentContainerStyle={styles.modalContent} automaticallyAdjustKeyboardInsets>
             <BlueText h4>MuSig2 Vault</BlueText>
             <BlueText style={[styles.intro, stylesHook.helper]}>
-              For hardware signing, paste each signer's BIP380 key expression: [fingerprint/path]xpub.... COLDCARD can export this from Advanced/Tools → Export Wallet → Key Expression. Bare 02/03 public keys remain supported for deterministic test wallets only.
+              Paste each signer's [fingerprint/path]xpub key expression. For Nunchuk Mobile, you can paste the complete BSMS 1.0 export and BlueWallet will extract the Taproot signer automatically. COLDCARD can export its key expression from Advanced/Tools → Export Wallet → Key Expression. Bare 02/03 public keys remain supported for deterministic test wallets only.
             </BlueText>
 
             {receivingAddress ? (
@@ -223,12 +224,12 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
             ) : (
               <>
                 <BlueSpacing20 />
-                <BlueFormLabel>Signer 1 key expression</BlueFormLabel>
+                <BlueFormLabel>Signer 1 key expression or BSMS</BlueFormLabel>
                 <TextInput
                   testID="MuSig2Signer1PublicKey"
                   value={signer1PublicKey}
                   onChangeText={setSigner1PublicKey}
-                  placeholder="[FINGERPRINT/86h/0h/0h]xpub..."
+                  placeholder="[FINGERPRINT/86h/0h/0h]xpub... or BSMS 1.0"
                   placeholderTextColor="#81868e"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -238,12 +239,12 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
                   style={[styles.input, stylesHook.input]}
                 />
 
-                <BlueFormLabel>Signer 2 key expression</BlueFormLabel>
+                <BlueFormLabel>Signer 2 key expression or BSMS</BlueFormLabel>
                 <TextInput
                   testID="MuSig2Signer2PublicKey"
                   value={signer2PublicKey}
                   onChangeText={setSigner2PublicKey}
-                  placeholder="[FINGERPRINT/86h/0h/0h]xpub..."
+                  placeholder="[FINGERPRINT/86h/0h/0h]xpub... or BSMS 1.0"
                   placeholderTextColor="#81868e"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -254,7 +255,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
                 />
 
                 <BlueText style={[styles.helper, stylesHook.helper]}>
-                  Use two xpub key expressions for a hardware-compatible wallet. For the existing BIP327 simulator vector, you may still paste two compressed 33-byte public keys instead.
+                  Use two hardware xpub key expressions. A full Nunchuk Mobile BSMS 1.0 Taproot export can be pasted directly into either signer field. BlueWallet validates its descriptor checksum and extracts only the public signer expression.
                 </BlueText>
 
                 <BlueSpacing20 />
