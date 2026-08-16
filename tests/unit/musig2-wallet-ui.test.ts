@@ -1,6 +1,7 @@
 import assert from 'assert';
 
-import { HDTaprootMuSig2Wallet, MuSig2CoordinatorExport } from '../../class/wallets/hd-taproot-musig2-wallet';
+import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
+import type { MuSig2CoordinatorExport } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
 
 const SIGNER_1 = '02F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9';
