@@ -7,6 +7,7 @@ import BlueCard from '../../components/BlueCard';
 import BlueText from '../../components/BlueText';
 import { HDAezeedWallet } from '../../class/wallets/hd-aezeed-wallet';
 import { HDSegwitBech32Wallet } from '../../class/wallets/hd-segwit-bech32-wallet';
+import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { LegacyWallet } from '../../class/wallets/legacy-wallet';
 import { LightningArkWallet } from '../../class/wallets/lightning-ark-wallet';
 import { MultisigHDWallet } from '../../class/wallets/multisig-hd-wallet';
@@ -114,7 +115,11 @@ const WalletDetails: React.FC = () => {
       if (wallet.getDerivationPath) {
         // @ts-expect-error: Need to fix later
         const path = wallet.getDerivationPath();
-        return path.length > 0 ? path : null;
+        if (!path.length) return null;
+        if (wallet.type === HDTaprootMuSig2Wallet.type) {
+          return `${path} (root), ${path}/0/* receive, ${path}/1/* change`;
+        }
+        return path;
       }
       return null;
     } catch (e) {
@@ -338,7 +343,7 @@ const WalletDetails: React.FC = () => {
     editButton: {
       backgroundColor: colors.lightButton,
       marginLeft: direction === 'rtl' ? 0 : 12,
-      marginRight: direction === 'rtl' ? 12 : 0,
+      marginRight: direction !== 'rtl' ? 0 : 12,
     },
     editButtonText: {
       color: colors.buttonTextColor,
@@ -796,7 +801,7 @@ const WalletDetails: React.FC = () => {
                   {wallet.allowMasterFingerprint && wallet.allowMasterFingerprint() && (
                     <SettingsListItem
                       onPress={isMasterFingerPrintVisible ? undefined : onViewMasterFingerPrintPress}
-                      title={loc.wallets.details_master_fingerprint}
+                      title={wallet.type === HDTaprootMuSig2Wallet.type ? 'MuSig2 root fingerprint' : loc.wallets.details_master_fingerprint}
                       titleStyle={stylesHook.advancedListItemTitle}
                       rightTitle={
                         isMasterFingerPrintVisible ? (masterFingerprint ?? loc.wallets.import_derivation_loading) : loc.multisig.view
