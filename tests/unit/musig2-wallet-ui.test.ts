@@ -101,7 +101,6 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
           vout: 0,
           value: 100000,
           address: receiveAddress,
-          confirmations: 6,
         },
       ],
       [{ address: externalTarget, value: 25000 }],
