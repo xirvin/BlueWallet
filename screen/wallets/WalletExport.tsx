@@ -8,6 +8,7 @@ import { validateMnemonic } from '../../blue_modules/bip39';
 import triggerHapticFeedback, { HapticFeedbackTypes } from '../../blue_modules/hapticFeedback';
 import BlueText from '../../components/BlueText';
 import { LightningCustodianWallet } from '../../class/wallets/lightning-custodian-wallet';
+import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { WatchOnlyWallet } from '../../class/wallets/watch-only-wallet';
 import HandOffComponent from '../../components/HandOffComponent';
 import QRCode from '../../components/QRCode';
@@ -63,6 +64,7 @@ const WalletExport: React.FC = () => {
   const { isPrivacyBlurEnabled } = useSettings();
   const { colors } = useTheme();
   const wallet = wallets.find(w => w.getID() === walletID)!;
+  const isMuSig2Coordinator = wallet.type === HDTaprootMuSig2Wallet.type;
   const [qrCodeSize, setQRCodeSize] = useState(90);
   const { enableScreenProtect, disableScreenProtect } = useScreenProtect();
   const { currentAppState, previousAppState } = useAppState();
@@ -72,6 +74,10 @@ const WalletExport: React.FC = () => {
 
   const secrets: string[] = useMemo(() => {
     try {
+      if (wallet.type === HDTaprootMuSig2Wallet.type) {
+        return [(wallet as HDTaprootMuSig2Wallet).getCoordinatorExport()];
+      }
+
       let secret = wallet.getSecret();
       if (wallet instanceof WatchOnlyWallet) {
         try {
@@ -93,8 +99,9 @@ const WalletExport: React.FC = () => {
   }, [wallet]);
 
   const secretIsMnemonic: boolean = useMemo(() => {
+    if (isMuSig2Coordinator) return false;
     return validateMnemonic(wallet.getSecret());
-  }, [wallet]);
+  }, [isMuSig2Coordinator, wallet]);
 
   useEffect(() => {
     if (previousAppState === 'active' && currentAppState !== 'active') {
@@ -190,12 +197,19 @@ const WalletExport: React.FC = () => {
       onLayout={onLayout}
       testID="WalletExportScroll"
     >
-      {wallet.type !== WatchOnlyWallet.type && <DoNotDisclose />}
+      {wallet.type !== WatchOnlyWallet.type && !isMuSig2Coordinator && <DoNotDisclose />}
 
-      <BlueText style={styles.scanText}>{loc.wallets.scan_import}</BlueText>
+      <BlueText style={styles.scanText}>{isMuSig2Coordinator ? 'Scan MuSig2 coordinator backup' : loc.wallets.scan_import}</BlueText>
 
       <View style={styles.qrCodeContainer}>
-        <QRCode isMenuAvailable={false} value={secret} size={qrCodeSize} logoSize={70} />
+        <QRCode
+          isMenuAvailable={false}
+          value={secret}
+          size={qrCodeSize}
+          logoSize={isMuSig2Coordinator ? 0 : 70}
+          isLogoRendered={!isMuSig2Coordinator}
+          ecl={isMuSig2Coordinator ? 'M' : 'H'}
+        />
       </View>
 
       {/* Do not allow to copy mnemonic */}
@@ -210,7 +224,11 @@ const WalletExport: React.FC = () => {
       ) : (
         <>
           <BlueText style={styles.writeText}>
-            {wallet.type === LightningCustodianWallet.type ? loc.wallets.copy_ln_url : loc.wallets.copy_ln_public}
+            {isMuSig2Coordinator
+              ? 'Public coordinator backup. Contains no seed, private key, or secret nonce.'
+              : wallet.type === LightningCustodianWallet.type
+                ? loc.wallets.copy_ln_url
+                : loc.wallets.copy_ln_public}
           </BlueText>
           <CopyBox text={secret} onPress={handleCopy} />
         </>

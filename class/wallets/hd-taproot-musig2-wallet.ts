@@ -16,6 +16,18 @@ export type MuSig2ParticipantMetadata = {
   derivationPath?: string;
 };
 
+export type MuSig2CoordinatorExport = {
+  format: 'bluewallet-musig2';
+  version: 1;
+  network: 'bitcoin';
+  label: string;
+  root: 'm';
+  rootFingerprint: string;
+  aggregatePublicKey: string;
+  xpub: string;
+  participants: MuSig2ParticipantMetadata[];
+};
+
 function normalizeFingerprint(fingerprint: string): string {
   const normalized = fingerprint.trim().toLowerCase();
   if (!/^[0-9a-f]{8}$/.test(normalized)) {
@@ -192,6 +204,24 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       this.hasParticipantPublicKeys() &&
       this._participants.every(participant => Boolean(participant.masterFingerprint && participant.derivationPath))
     );
+  }
+
+  getCoordinatorExport(): string {
+    if (!this.hasParticipantPublicKeys()) throw new Error('MuSig2 coordinator participant public keys are not configured');
+
+    const payload: MuSig2CoordinatorExport = {
+      format: 'bluewallet-musig2',
+      version: 1,
+      network: 'bitcoin',
+      label: this.getLabel(),
+      root: 'm',
+      rootFingerprint: this.getMuSig2RootFingerprint(),
+      aggregatePublicKey: uint8ArrayToHex(this.getAggregatePublicKey()),
+      xpub: this.getXpub(),
+      participants: this.getParticipants(),
+    };
+
+    return JSON.stringify(payload);
   }
 
   getID(): string {

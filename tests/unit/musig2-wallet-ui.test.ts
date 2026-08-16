@@ -1,6 +1,6 @@
 import assert from 'assert';
 
-import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
+import { HDTaprootMuSig2Wallet, MuSig2CoordinatorExport } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
 
 const SIGNER_1 = '02F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9';
@@ -32,6 +32,28 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
       EXPECTED_RECEIVE_ADDRESSES.map((_, index) => wallet._getExternalAddressByIndex(index)),
       EXPECTED_RECEIVE_ADDRESSES,
     );
+  });
+
+  it('exports a versioned public coordinator backup suitable for QR transport', () => {
+    const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setLabel('MuSig2 Vault');
+    wallet.setParticipantPublicKeys([SIGNER_1, SIGNER_2]);
+
+    const payload = JSON.parse(wallet.getCoordinatorExport()) as MuSig2CoordinatorExport;
+
+    assert.strictEqual(payload.format, 'bluewallet-musig2');
+    assert.strictEqual(payload.version, 1);
+    assert.strictEqual(payload.network, 'bitcoin');
+    assert.strictEqual(payload.label, 'MuSig2 Vault');
+    assert.strictEqual(payload.root, 'm');
+    assert.strictEqual(payload.rootFingerprint, EXPECTED_ROOT_FINGERPRINT);
+    assert.strictEqual(payload.aggregatePublicKey, EXPECTED_AGGREGATE);
+    assert.strictEqual(payload.xpub, EXPECTED_XPUB);
+    assert.deepStrictEqual(payload.participants, [
+      { publicKeyHex: SIGNER_1.toLowerCase() },
+      { publicKeyHex: SIGNER_2.toLowerCase() },
+    ]);
+    assert.ok(!wallet.getCoordinatorExport().includes('secret'));
   });
 
   it('creates and restores a public-key-only 2-of-2 coordinator wallet', () => {
