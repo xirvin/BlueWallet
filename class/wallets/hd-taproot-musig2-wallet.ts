@@ -45,8 +45,24 @@ function normalizeDerivationPath(path: string): string {
   return normalized;
 }
 
+function normalizeCompressedPublicKeyHex(publicKeyHex: string, label: string): string {
+  const normalized = publicKeyHex.trim().replace(/\s+/g, '').replace(/^0x/i, '');
+
+  if (normalized.length !== 66) {
+    throw new Error(`${label} must be exactly 66 hexadecimal characters (33 bytes); received ${normalized.length}`);
+  }
+  if (!/^[0-9a-fA-F]{66}$/.test(normalized)) {
+    throw new Error(`${label} must contain only hexadecimal characters`);
+  }
+  if (!/^(02|03)/i.test(normalized)) {
+    throw new Error(`${label} must be a compressed secp256k1 public key beginning with 02 or 03`);
+  }
+
+  return normalized.toLowerCase();
+}
+
 function normalizeParticipant(participant: MuSig2ParticipantMetadata): MuSig2ParticipantMetadata {
-  const publicKey = hexToUint8Array(participant.publicKeyHex.trim());
+  const publicKey = hexToUint8Array(normalizeCompressedPublicKeyHex(participant.publicKeyHex, 'MuSig2 signer public key'));
   parsePlainPublicKey(publicKey);
 
   const normalized: MuSig2ParticipantMetadata = {
@@ -99,7 +115,10 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   }
 
   setAggregatePublicKey(publicKey: Uint8Array | string): this {
-    const bytes = typeof publicKey === 'string' ? hexToUint8Array(publicKey) : new Uint8Array(publicKey);
+    const bytes =
+      typeof publicKey === 'string'
+        ? hexToUint8Array(normalizeCompressedPublicKeyHex(publicKey, 'MuSig2 aggregate public key'))
+        : new Uint8Array(publicKey);
     parsePlainPublicKey(bytes);
 
     if (this._participants.length === 2) {
