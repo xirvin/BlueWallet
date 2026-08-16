@@ -1,17 +1,23 @@
 import BIP32Factory, { BIP32Interface } from 'bip32';
 import * as bitcoin from 'bitcoinjs-lib';
+import { Psbt } from 'bitcoinjs-lib';
 import { sha256 } from '@noble/hashes/sha256';
+import { CoinSelectReturnInput } from 'coinselect';
 
 import ecc from '../../blue_modules/noble_ecc';
 import { bytesEqual, getPlainPublicKey, keyAgg, parsePlainPublicKey } from '../../blue_modules/musig2/key-aggregation';
+import { addMuSig2ParticipantsToInput, addMuSig2ParticipantsToOutput } from '../../blue_modules/musig2/psbt';
 import { hexToUint8Array, uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
+import { descriptorWithChecksum } from '../wallet-descriptor';
 import { AbstractHDElectrumWallet } from './abstract-hd-electrum-wallet';
+import { CreateTransactionResult, CreateTransactionTarget, CreateTransactionUtxo } from './types';
 
 const bip32 = BIP32Factory(ecc);
 const BIP328_CHAIN_CODE = hexToUint8Array('868087ca02a6f974c4598924c36b57762d32cb45717167e300622c7167e38965');
 
 export type MuSig2ParticipantMetadata = {
   publicKeyHex: string;
+  xpub?: string;
   masterFingerprint?: string;
   derivationPath?: string;
 };
@@ -25,6 +31,7 @@ export type MuSig2CoordinatorExport = {
   rootFingerprint: string;
   aggregatePublicKey: string;
   xpub: string;
+  descriptor?: string;
   participants: MuSig2ParticipantMetadata[];
 };
 
@@ -37,7 +44,7 @@ function normalizeFingerprint(fingerprint: string): string {
 }
 
 function normalizeDerivationPath(path: string): string {
-  const normalized = path.trim().replace(/h/g, "'");
+  const normalized = path.trim().replace(/[hH]/g, "'");
   if (normalized === 'm') return normalized;
 
   const components = normalized.split('/');
@@ -55,6 +62,33 @@ function normalizeDerivationPath(path: string): string {
   }
 
   return normalized;
+}
+
+function derivationComponentToIndex(component: string): number {
+  const hardened = component.endsWith("'");
+  const value = Number(component.replace("'", ''));
+  return value + (hardened ? 0x80000000 : 0);
+}
+
+function validateXpubOrigin(xpub: string, derivationPath: string): BIP32Interface {
+  if (!xpub.startsWith('xpub')) throw new Error('MuSig2 hardware signer key must be a mainnet xpub');
+
+  let node: BIP32Interface;
+  try {
+    node = bip32.fromBase58(xpub);
+  } catch {
+    throw new Error('MuSig2 signer xpub is invalid');
+  }
+
+  const components = derivationPath === 'm' ? [] : derivationPath.split('/').slice(1);
+  if (node.depth !== components.length) {
+    throw new Error(`MuSig2 signer xpub depth ${node.depth} does not match origin path depth ${components.length}`);
+  }
+  if (components.length > 0 && node.index !== derivationComponentToIndex(components[components.length - 1])) {
+    throw new Error('MuSig2 signer xpub child number does not match the final origin path component');
+  }
+
+  return node;
 }
 
 function normalizeCompressedPublicKeyHex(publicKeyHex: string, label: string): string {
@@ -81,14 +115,81 @@ function normalizeParticipant(participant: MuSig2ParticipantMetadata): MuSig2Par
     publicKeyHex: uint8ArrayToHex(publicKey),
   };
 
-  if (participant.masterFingerprint?.trim()) {
-    normalized.masterFingerprint = normalizeFingerprint(participant.masterFingerprint);
+  const hasFingerprint = Boolean(participant.masterFingerprint?.trim());
+  const hasPath = Boolean(participant.derivationPath?.trim());
+  if (hasFingerprint !== hasPath) {
+    throw new Error('MuSig2 signer fingerprint and derivation path must be provided together');
   }
-  if (participant.derivationPath?.trim()) {
-    normalized.derivationPath = normalizeDerivationPath(participant.derivationPath);
+
+  if (hasFingerprint && hasPath) {
+    normalized.masterFingerprint = normalizeFingerprint(participant.masterFingerprint!);
+    normalized.derivationPath = normalizeDerivationPath(participant.derivationPath!);
+  }
+
+  if (participant.xpub?.trim()) {
+    const xpub = participant.xpub.trim();
+    if (!normalized.derivationPath || !normalized.masterFingerprint) {
+      throw new Error('MuSig2 signer xpub requires a master fingerprint and origin derivation path');
+    }
+    const node = validateXpubOrigin(xpub, normalized.derivationPath);
+    if (!bytesEqual(node.publicKey, publicKey)) {
+      throw new Error('MuSig2 signer public key does not match the supplied xpub');
+    }
+    normalized.xpub = xpub;
   }
 
   return normalized;
+}
+
+function compareParticipantKeys(a: MuSig2ParticipantMetadata, b: MuSig2ParticipantMetadata): number {
+  const aa = hexToUint8Array(a.publicKeyHex);
+  const bb = hexToUint8Array(b.publicKeyHex);
+  for (let i = 0; i < aa.length; i++) {
+    if (aa[i] !== bb[i]) return aa[i] - bb[i];
+  }
+  return 0;
+}
+
+function descriptorOrigin(participant: MuSig2ParticipantMetadata): string {
+  if (!participant.xpub || !participant.masterFingerprint || !participant.derivationPath) {
+    throw new Error('BIP390 descriptor requires xpub, master fingerprint and origin path for every signer');
+  }
+  const path = participant.derivationPath === 'm' ? '' : `/${participant.derivationPath.slice(2).replace(/'/g, 'h')}`;
+  return `[${participant.masterFingerprint}${path}]${participant.xpub}`;
+}
+
+/**
+ * Parses the BIP380 extended-key expression exported by hardware wallets, for
+ * example [f23a9cde/86h/0h/0h]xpub.... Bare compressed public keys remain
+ * accepted for deterministic tests and coordinator-only experiments.
+ */
+export function parseMuSig2ParticipantKeyExpression(input: string): MuSig2ParticipantMetadata {
+  const compact = input.trim().replace(/\s+/g, '');
+
+  if (/^(?:0x)?(?:02|03)[0-9a-fA-F]{64}$/i.test(compact)) {
+    return normalizeParticipant({ publicKeyHex: compact });
+  }
+
+  if (!compact.startsWith('[')) {
+    throw new Error('MuSig2 signer must be a compressed public key or [fingerprint/path]xpub key expression');
+  }
+
+  const closeBracket = compact.indexOf(']');
+  if (closeBracket <= 1) throw new Error('MuSig2 signer key expression is missing its origin');
+
+  const origin = compact.slice(1, closeBracket);
+  const xpub = compact.slice(closeBracket + 1);
+  const originParts = origin.split('/');
+  const masterFingerprint = normalizeFingerprint(originParts[0]);
+  const derivationPath = normalizeDerivationPath(originParts.length === 1 ? 'm' : `m/${originParts.slice(1).join('/')}`);
+  const node = validateXpubOrigin(xpub, derivationPath);
+
+  return normalizeParticipant({
+    publicKeyHex: uint8ArrayToHex(node.publicKey),
+    xpub,
+    masterFingerprint,
+    derivationPath,
+  });
 }
 
 /**
@@ -172,7 +273,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   setParticipants(participants: MuSig2ParticipantMetadata[]): this {
     if (participants.length !== 2) throw new Error('MuSig2 coordinator wallet currently requires exactly two signers');
 
-    const normalized = participants.map(normalizeParticipant);
+    const normalized = participants.map(normalizeParticipant).sort(compareParticipantKeys);
     if (normalized[0].publicKeyHex === normalized[1].publicKeyHex) {
       throw new Error('MuSig2 signer public keys must be distinct');
     }
@@ -191,6 +292,16 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     );
   }
 
+  setParticipantKeyExpressions(expressions: string[]): this {
+    if (expressions.length !== 2) throw new Error('MuSig2 coordinator wallet currently requires exactly two signers');
+    const participants = expressions.map(parseMuSig2ParticipantKeyExpression);
+    const xpubCount = participants.filter(participant => Boolean(participant.xpub)).length;
+    if (xpubCount !== 0 && xpubCount !== participants.length) {
+      throw new Error('Use two hardware xpub key expressions or two bare public keys; mixed MuSig2 signer modes are not supported');
+    }
+    return this.setParticipants(participants);
+  }
+
   getParticipants(): MuSig2ParticipantMetadata[] {
     return this._participants.map(participant => ({ ...participant }));
   }
@@ -206,6 +317,20 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     );
   }
 
+  hasCompleteExtendedParticipantMetadata(): boolean {
+    return this.hasCompleteParticipantMetadata() && this._participants.every(participant => Boolean(participant.xpub));
+  }
+
+  getBIP390Descriptor(includeChecksum = true): string {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('BIP390 descriptor requires two signer [fingerprint/path]xpub key expressions');
+    }
+
+    const keys = this._participants.map(descriptorOrigin).join(',');
+    const descriptor = `tr(musig(${keys})/<0;1>/*)`;
+    return includeChecksum ? descriptorWithChecksum(descriptor) : descriptor;
+  }
+
   getCoordinatorExport(): string {
     if (!this.hasParticipantPublicKeys()) throw new Error('MuSig2 coordinator participant public keys are not configured');
 
@@ -218,6 +343,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       rootFingerprint: this.getMuSig2RootFingerprint(),
       aggregatePublicKey: uint8ArrayToHex(this.getAggregatePublicKey()),
       xpub: this.getXpub(),
+      ...(this.hasCompleteExtendedParticipantMetadata() ? { descriptor: this.getBIP390Descriptor() } : {}),
       participants: this.getParticipants(),
     };
 
@@ -241,6 +367,103 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     return address;
   }
 
+  _getNodePubkeyByIndex(node: number, index: number): Uint8Array {
+    if (node !== 0 && node !== 1) throw new Error('MuSig2 derivation branch must be 0 or 1');
+    return this._getNodeByIndex(node, index).publicKey.slice(1);
+  }
+
+  private getParticipantPublicKeys(): Uint8Array[] {
+    return this._participants.map(participant => hexToUint8Array(participant.publicKeyHex));
+  }
+
+  private getParticipantTapBip32Derivations() {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('MuSig2 hardware signing requires both signer [fingerprint/path]xpub key expressions');
+    }
+
+    return this._participants.map(participant => ({
+      pubkey: hexToUint8Array(participant.publicKeyHex).slice(1),
+      masterFingerprint: hexToUint8Array(participant.masterFingerprint!),
+      path: participant.derivationPath!,
+      leafHashes: [] as Uint8Array[],
+    }));
+  }
+
+  _addPsbtInput(psbt: Psbt, input: CoinSelectReturnInput, sequence: number, _masterFingerprintBuffer: Uint8Array): Psbt {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('MuSig2 Round 1 requires both signer [fingerprint/path]xpub key expressions');
+    }
+    if (!input.address) throw new Error('Internal error: no address on MuSig2 UTXO');
+
+    const internalKey = this._getPubkeyByAddress(input.address);
+    const path = this._getDerivationPathByAddress(input.address);
+    if (!internalKey || !path) throw new Error('Could not locate MuSig2 UTXO derivation path');
+
+    const p2tr = bitcoin.payments.p2tr({ internalPubkey: internalKey });
+    if (!p2tr.output) throw new Error('Could not build MuSig2 Taproot witness output');
+
+    psbt.addInput({
+      hash: input.txid,
+      index: input.vout,
+      sequence,
+      witnessUtxo: {
+        script: p2tr.output,
+        value: BigInt(input.value),
+      },
+      tapBip32Derivation: [
+        ...this.getParticipantTapBip32Derivations(),
+        {
+          pubkey: new Uint8Array(internalKey),
+          masterFingerprint: hexToUint8Array(this.getMuSig2RootFingerprint()),
+          path,
+          leafHashes: [],
+        },
+      ],
+      tapInternalKey: new Uint8Array(internalKey),
+    });
+
+    addMuSig2ParticipantsToInput(psbt, psbt.inputCount - 1, this.getAggregatePublicKey(), this.getParticipantPublicKeys());
+    return psbt;
+  }
+
+  createTransaction(
+    utxos: CreateTransactionUtxo[],
+    targets: CreateTransactionTarget[],
+    feeRate: number,
+    changeAddress: string,
+    sequence: number = AbstractHDElectrumWallet.defaultRBFSequence,
+    _skipSigning = true,
+    _masterFingerprint = 0,
+  ): CreateTransactionResult {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('MuSig2 spending requires two hardware signer [fingerprint/path]xpub key expressions');
+    }
+
+    // The phone is coordinator-only. Always force unsigned PSBT construction.
+    const result = super.createTransaction(utxos, targets, feeRate, changeAddress, sequence, true, 0);
+
+    result.outputs.forEach((output, outputIndex) => {
+      if (!output.address) return;
+      const path = this._getDerivationPathByAddress(String(output.address));
+      const internalKey = this._getPubkeyByAddress(String(output.address));
+      if (!path || !internalKey) return; // external recipient, not our change output
+
+      result.psbt.data.outputs[outputIndex].tapInternalKey = new Uint8Array(internalKey);
+      result.psbt.data.outputs[outputIndex].tapBip32Derivation = [
+        ...this.getParticipantTapBip32Derivations(),
+        {
+          pubkey: new Uint8Array(internalKey),
+          masterFingerprint: hexToUint8Array(this.getMuSig2RootFingerprint()),
+          path,
+          leafHashes: [],
+        },
+      ];
+      addMuSig2ParticipantsToOutput(result.psbt, outputIndex, this.getAggregatePublicKey(), this.getParticipantPublicKeys());
+    });
+
+    return result;
+  }
+
   _getExternalWIFByIndex(): false {
     return false;
   }
@@ -250,11 +473,13 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   }
 
   allowSend(): boolean {
-    return true;
+    return this.hasCompleteExtendedParticipantMetadata();
   }
 
+  // MuSig2 signing uses its own two-round BIP373 flow, not BlueWallet's
+  // classic one-pass PSBT cosigning action.
   allowCosignPsbt(): boolean {
-    return true;
+    return false;
   }
 
   allowMasterFingerprint(): boolean {
