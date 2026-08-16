@@ -138,8 +138,14 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
                     {receivingAddress}
                   </BlueText>
                 </View>
+                <BlueText testID="MuSig2RootDerivationPath" style={[styles.helper, stylesHook.helper]}>
+                  MuSig2 root: {HDTaprootMuSig2Wallet.derivationPath}
+                </BlueText>
+                <BlueText testID="MuSig2AddressDerivationPath" style={[styles.helper, stylesHook.helper]}>
+                  Address derivation: {HDTaprootMuSig2Wallet.derivationPath}/0/0
+                </BlueText>
                 <BlueText style={[styles.helper, stylesHook.helper]}>
-                  This is the first BIP328-derived Taproot receive address for the aggregate MuSig2 key.
+                  This is the first BIP328-derived Taproot receive address for the aggregate MuSig2 key. External receive addresses continue as m/0/1, m/0/2, and so on.
                 </BlueText>
                 <BlueSpacing40 />
                 <Button testID="MuSig2Done" title="Done" onPress={close} />
