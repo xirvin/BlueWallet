@@ -13,7 +13,9 @@ import {
 import { useLocale } from '@react-navigation/native';
 
 import triggerHapticFeedback, { HapticFeedbackTypes } from '../blue_modules/hapticFeedback';
+import { createMuSig2DryRun } from '../blue_modules/musig2/dry-run';
 import { HDTaprootMuSig2Wallet } from '../class/wallets/hd-taproot-musig2-wallet';
+import { navigate as navigateRoot } from '../NavigationService';
 import presentAlert from './Alert';
 import BlueButtonLink from './BlueButtonLink';
 import BlueFormLabel from './BlueFormLabel';
@@ -41,6 +43,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
   const [receivingAddress, setReceivingAddress] = useState('');
   const [rootFingerprint, setRootFingerprint] = useState('');
   const [descriptor, setDescriptor] = useState('');
+  const [createdWallet, setCreatedWallet] = useState<HDTaprootMuSig2Wallet | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   const stylesHook = StyleSheet.create({
@@ -70,6 +73,9 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
     helper: {
       color: colors.alternativeTextColor,
     },
+    warning: {
+      color: colors.redText,
+    },
     addressBox: {
       borderColor: colors.formBorder,
       backgroundColor: colors.inputBackgroundColor,
@@ -93,6 +99,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
 
       addWallet(wallet);
       await saveToDisk();
+      setCreatedWallet(wallet);
       setReceivingAddress(address);
       setRootFingerprint(wallet.getMuSig2RootFingerprint());
       setDescriptor(wallet.hasCompleteExtendedParticipantMetadata() ? wallet.getBIP390Descriptor() : '');
@@ -103,6 +110,28 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
       setIsCreating(false);
     }
   }, [addWallet, saveToDisk, signer1PublicKey, signer2PublicKey]);
+
+  const startSyntheticSigningTest = useCallback(() => {
+    if (!createdWallet) return;
+
+    try {
+      const dryRun = createMuSig2DryRun(createdWallet);
+      setVisible(false);
+      navigateRoot(
+        'SendDetailsRoot',
+        {
+          screen: 'MuSig2Round1QRCode',
+          params: {
+            memo: 'DEVELOPMENT ONLY: synthetic MuSig2 signing test',
+            psbtBase64: dryRun.psbt.toBase64(),
+            walletID: createdWallet.getID(),
+          },
+        } as any,
+      );
+    } catch (error: any) {
+      presentAlert({ message: error?.message ?? String(error) });
+    }
+  }, [createdWallet]);
 
   return (
     <>
@@ -162,6 +191,23 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
                     <BlueText style={[styles.helper, stylesHook.helper]}>
                       Hardware-signing metadata is complete. Spending will create a BIP373 Round 1 PSBT for the signers.
                     </BlueText>
+                    {__DEV__ && createdWallet && (
+                      <>
+                        <BlueSpacing20 />
+                        <BlueText bold style={stylesHook.warning}>
+                          Development signing test
+                        </BlueText>
+                        <BlueText style={[styles.helper, stylesHook.helper]}>
+                          Creates a local 100,000-sat fake UTXO using a nonexistent transaction ID. No wallet balance or blockchain transaction is required, and the resulting transaction cannot be broadcast successfully.
+                        </BlueText>
+                        <BlueSpacing20 />
+                        <Button
+                          testID="MuSig2SyntheticSigningTest"
+                          title="Test MuSig2 signing (no BTC)"
+                          onPress={startSyntheticSigningTest}
+                        />
+                      </>
+                    )}
                   </>
                 ) : (
                   <BlueText style={[styles.helper, stylesHook.helper]}>
