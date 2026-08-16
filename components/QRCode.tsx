@@ -11,6 +11,7 @@ import ToolTipMenu from './TooltipMenu';
 import { Action } from './types';
 
 type ErrorCorrectionLevel = 'H' | 'Q' | 'M' | 'L';
+type QRCodeEncoding = 'numeric' | 'alphanumeric' | 'byte' | 'kanji' | 'eci';
 
 interface QRCodeProps {
   value: string;
@@ -19,6 +20,7 @@ interface QRCodeProps {
   isMenuAvailable?: boolean;
   logoSize?: number;
   ecl?: ErrorCorrectionLevel;
+  encoding?: QRCodeEncoding;
   onError?: (error?: unknown) => void;
 }
 
@@ -61,15 +63,15 @@ const roundUpToOdd = (n: number): number => {
 const MATRIX_CACHE_MAX = 128;
 const matrixCache = new Map<string, boolean[][]>();
 
-const getCachedMatrix = (value: string, ecl: ErrorCorrectionLevel): boolean[][] => {
-  const key = `${ecl}|${value}`;
+const getCachedMatrix = (value: string, ecl: ErrorCorrectionLevel, encoding?: QRCodeEncoding): boolean[][] => {
+  const key = `${ecl}|${encoding ?? 'auto'}|${value}`;
   const hit = matrixCache.get(key);
   if (hit) {
     matrixCache.delete(key);
     matrixCache.set(key, hit);
     return hit;
   }
-  const m = encodeQR(value, 'raw', { ecc: eclMap[ecl], border: 1 });
+  const m = encodeQR(value, 'raw', { ecc: eclMap[ecl], border: 1, ...(encoding ? { encoding } : {}) });
   matrixCache.set(key, m);
   if (matrixCache.size > MATRIX_CACHE_MAX) {
     const first = matrixCache.keys().next().value;
@@ -90,8 +92,15 @@ type RenderPlan = {
 const PLAN_CACHE_MAX = 64;
 const planCache = new Map<string, RenderPlan>();
 
-const getCachedPlan = (value: string, ecl: ErrorCorrectionLevel, size: number, isLogoRendered: boolean, logoSize: number): RenderPlan => {
-  const key = `${ecl}|${size}|${isLogoRendered ? 'L' + logoSize : 'NL'}|${value}`;
+const getCachedPlan = (
+  value: string,
+  ecl: ErrorCorrectionLevel,
+  size: number,
+  isLogoRendered: boolean,
+  logoSize: number,
+  encoding?: QRCodeEncoding,
+): RenderPlan => {
+  const key = `${ecl}|${encoding ?? 'auto'}|${size}|${isLogoRendered ? 'L' + logoSize : 'NL'}|${value}`;
   const hit = planCache.get(key);
   if (hit) {
     planCache.delete(key);
@@ -99,7 +108,7 @@ const getCachedPlan = (value: string, ecl: ErrorCorrectionLevel, size: number, i
     return hit;
   }
 
-  const matrix = getCachedMatrix(value, ecl);
+  const matrix = getCachedMatrix(value, ecl, encoding);
   const N = matrix.length;
   const cell = size / N;
 
@@ -149,18 +158,19 @@ const QRCode: React.FC<QRCodeProps> = ({
   isMenuAvailable = true,
   logoSize = 90,
   ecl = 'H',
+  encoding,
   onError,
 }) => {
   const svgRef = useRef<Svg>(null);
 
   const plan = useMemo<RenderPlan | null>(() => {
     try {
-      return getCachedPlan(value, ecl, size, isLogoRendered, logoSize);
+      return getCachedPlan(value, ecl, size, isLogoRendered, logoSize, encoding);
     } catch (e) {
       onError?.(e);
       return null;
     }
-  }, [value, ecl, size, isLogoRendered, logoSize, onError]);
+  }, [value, ecl, size, isLogoRendered, logoSize, encoding, onError]);
 
   const handleCopy = useCallback(() => {
     if (!svgRef.current) return;
