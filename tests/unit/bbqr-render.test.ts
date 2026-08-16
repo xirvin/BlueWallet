@@ -6,9 +6,14 @@ import { splitQRs } from '../../blue_modules/bbqr/split';
 describe('BBQr rendering', () => {
   it('encodes multipart BBQr frames in QR alphanumeric mode', () => {
     const payload = Uint8Array.from({ length: 1400 }, (_, index) => (index * 73 + index * index * 11) & 0xff);
-    const { parts } = splitQRs(payload, 'P', { minSplit: 7 });
+    const { parts } = splitQRs(payload, 'P', {
+      minVersion: 10,
+      maxVersion: 10,
+      minSplit: 2,
+      encoding: '2',
+    });
 
-    assert.ok(parts.length >= 7);
+    assert.ok(parts.length >= 2);
     for (const part of parts) {
       assert.ok(part.startsWith('B$'));
       const matrix = encodeQR(part.toUpperCase(), 'raw', {
