@@ -40,6 +40,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
   const [signer2PublicKey, setSigner2PublicKey] = useState('');
   const [receivingAddress, setReceivingAddress] = useState('');
   const [rootFingerprint, setRootFingerprint] = useState('');
+  const [descriptor, setDescriptor] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   const stylesHook = StyleSheet.create({
@@ -85,7 +86,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
     try {
       const wallet = new HDTaprootMuSig2Wallet();
       wallet.setLabel('MuSig2 Vault');
-      wallet.setParticipantPublicKeys([signer1PublicKey.trim(), signer2PublicKey.trim()]);
+      wallet.setParticipantKeyExpressions([signer1PublicKey, signer2PublicKey]);
 
       const address = wallet._getExternalAddressByIndex(0);
       if (!address || !address.startsWith('bc1p')) throw new Error('Could not derive a Taproot receiving address');
@@ -94,6 +95,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
       await saveToDisk();
       setReceivingAddress(address);
       setRootFingerprint(wallet.getMuSig2RootFingerprint());
+      setDescriptor(wallet.hasCompleteExtendedParticipantMetadata() ? wallet.getBIP390Descriptor() : '');
       triggerHapticFeedback(HapticFeedbackTypes.NotificationSuccess);
     } catch (error: any) {
       presentAlert({ message: error?.message ?? String(error) });
@@ -127,7 +129,7 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
           <SafeAreaScrollView style={[styles.flex1, stylesHook.modal]} contentContainerStyle={styles.modalContent} automaticallyAdjustKeyboardInsets>
             <BlueText h4>MuSig2 Vault</BlueText>
             <BlueText style={[styles.intro, stylesHook.helper]}>
-              Create an experimental 2-of-2 coordinator wallet from two compressed secp256k1 public keys. No private keys are stored on this device.
+              For hardware signing, paste each signer's BIP380 key expression: [fingerprint/path]xpub.... COLDCARD can export this from Advanced/Tools → Export Wallet → Key Expression. Bare 02/03 public keys remain supported for deterministic test wallets only.
             </BlueText>
 
             {receivingAddress ? (
@@ -149,6 +151,23 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
                 <BlueText testID="MuSig2AddressDerivationPath" style={[styles.helper, stylesHook.helper]}>
                   Address derivation: {HDTaprootMuSig2Wallet.derivationPath}/0/0
                 </BlueText>
+                {descriptor ? (
+                  <>
+                    <BlueFormLabel>BIP390 descriptor</BlueFormLabel>
+                    <View style={[styles.addressBox, stylesHook.addressBox]}>
+                      <BlueText selectable testID="MuSig2BIP390Descriptor" style={styles.descriptorText}>
+                        {descriptor}
+                      </BlueText>
+                    </View>
+                    <BlueText style={[styles.helper, stylesHook.helper]}>
+                      Hardware-signing metadata is complete. Spending will create a BIP373 Round 1 PSBT for the signers.
+                    </BlueText>
+                  </>
+                ) : (
+                  <BlueText style={[styles.helper, stylesHook.helper]}>
+                    Test-only public-key wallet. It can derive and monitor addresses, but hardware MuSig2 spending is disabled because signer xpub origins are missing.
+                  </BlueText>
+                )}
                 <BlueText style={[styles.helper, stylesHook.helper]}>
                   This is the first BIP328-derived Taproot receive address for the aggregate MuSig2 key. External receive addresses continue as m/0/1, m/0/2, and so on. The MuSig2 root fingerprint identifies the synthetic aggregate root, not either hardware signer.
                 </BlueText>
@@ -158,36 +177,38 @@ const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
             ) : (
               <>
                 <BlueSpacing20 />
-                <BlueFormLabel>Signer 1 public key</BlueFormLabel>
+                <BlueFormLabel>Signer 1 key expression</BlueFormLabel>
                 <TextInput
                   testID="MuSig2Signer1PublicKey"
                   value={signer1PublicKey}
                   onChangeText={setSigner1PublicKey}
-                  placeholder="02... or 03... (66 hex characters)"
+                  placeholder="[FINGERPRINT/86h/0h/0h]xpub..."
                   placeholderTextColor="#81868e"
                   autoCapitalize="none"
                   autoCorrect={false}
                   spellCheck={false}
                   editable={!isCreating}
+                  multiline
                   style={[styles.input, stylesHook.input]}
                 />
 
-                <BlueFormLabel>Signer 2 public key</BlueFormLabel>
+                <BlueFormLabel>Signer 2 key expression</BlueFormLabel>
                 <TextInput
                   testID="MuSig2Signer2PublicKey"
                   value={signer2PublicKey}
                   onChangeText={setSigner2PublicKey}
-                  placeholder="02... or 03... (66 hex characters)"
+                  placeholder="[FINGERPRINT/86h/0h/0h]xpub..."
                   placeholderTextColor="#81868e"
                   autoCapitalize="none"
                   autoCorrect={false}
                   spellCheck={false}
                   editable={!isCreating}
+                  multiline
                   style={[styles.input, stylesHook.input]}
                 />
 
                 <BlueText style={[styles.helper, stylesHook.helper]}>
-                  Public keys must be compressed 33-byte secp256k1 keys. Fingerprints and signer derivation metadata can be attached later when hardware-wallet import is implemented.
+                  Use two xpub key expressions for a hardware-compatible wallet. For the existing BIP327 simulator vector, you may still paste two compressed 33-byte public keys instead.
                 </BlueText>
 
                 <BlueSpacing20 />
@@ -256,15 +277,17 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderRadius: 8,
-    minHeight: 48,
+    minHeight: 72,
     marginTop: 8,
     marginBottom: 20,
     paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 14,
   },
   helper: {
     fontSize: 13,
     lineHeight: 18,
+    marginTop: 8,
   },
   addressBox: {
     borderWidth: 1,
@@ -276,6 +299,10 @@ const styles = StyleSheet.create({
   addressText: {
     fontSize: 15,
     lineHeight: 21,
+  },
+  descriptorText: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   cancel: {
     marginVertical: 24,
