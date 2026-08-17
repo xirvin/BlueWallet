@@ -53,6 +53,30 @@ describe('MuSig2 Vault UX rules', () => {
     }
   });
 
+  it('includes every signer account xpub in a 7-of-7 signing PSBT', () => {
+    const expressions = Array.from({ length: 7 }, (_, index) => makeSignerExpression(index));
+    const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setParticipantKeyExpressions(expressions);
+
+    const fundingAddress = wallet._getExternalAddressByIndex(0);
+    const targetAddress = wallet._getExternalAddressByIndex(1);
+    const changeAddress = wallet._getInternalAddressByIndex(0);
+    const result = wallet.createTransaction(
+      [{ txid: '22'.repeat(32), vout: 0, value: 100_000, address: fundingAddress }],
+      [{ address: targetAddress, value: 25_000 }],
+      1,
+      changeAddress,
+    );
+
+    assert.strictEqual(result.psbt.data.globalMap.globalXpub?.length, 7);
+    const roundTrip = bitcoin.Psbt.fromBase64(result.psbt.toBase64());
+    assert.strictEqual(roundTrip.data.globalMap.globalXpub?.length, 7);
+    assert.deepStrictEqual(
+      new Set(roundTrip.data.globalMap.globalXpub?.map(item => uint8ArrayToHex(item.masterFingerprint))).size,
+      7,
+    );
+  });
+
   it('accepts a bare key, descriptor-only BSMS form, or complete BSMS 1.0 form', () => {
     const expression = makeSignerExpression(0);
     const descriptor = descriptorWithChecksum(`tr(${expression}/*)`);
