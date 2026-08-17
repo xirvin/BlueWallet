@@ -7,7 +7,9 @@ import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import {
   getMuSig2NonceProgress,
   mergeMuSig2Round1Psbt,
+  PSBT_IN_MUSIG2_PARTIAL_SIG,
   PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS,
+  PSBT_IN_MUSIG2_PUB_NONCE,
 } from '../../blue_modules/musig2/psbt';
 import presentAlert from '../../components/Alert';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
@@ -35,6 +37,63 @@ function parseReturnedPsbt(data: string): bitcoin.Psbt {
   throw new Error('Scanned data is not a valid PSBT');
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function compactHex(bytes: Uint8Array, maxCharacters = 160): string {
+  const hex = bytesToHex(bytes);
+  return hex.length <= maxCharacters ? hex : `${hex.slice(0, maxCharacters)}... (${bytes.length} bytes)`;
+}
+
+function describeReturnedPsbt(returnedPsbt: bitcoin.Psbt, originalPsbt: bitcoin.Psbt): string {
+  const returnedTx = bytesToHex(returnedPsbt.data.globalMap.unsignedTx.toBuffer());
+  const originalTx = bytesToHex(originalPsbt.data.globalMap.unsignedTx.toBuffer());
+  const globalXpubs = returnedPsbt.data.globalMap.globalXpub ?? [];
+  const lines = [
+    `Unsigned transaction: ${returnedTx === originalTx ? 'UNCHANGED' : 'CHANGED'}`,
+    `Global XPUB records: ${globalXpubs.length}`,
+  ];
+
+  globalXpubs.forEach((item, index) => {
+    lines.push(
+      `  XPUB ${index + 1}: fp=${bytesToHex(item.masterFingerprint)} path=${item.path} extendedPubkeyBytes=${item.extendedPubkey.length}`,
+    );
+  });
+
+  returnedPsbt.data.inputs.forEach((input, inputIndex) => {
+    const unknown = input.unknownKeyVals ?? [];
+    const participantFields = unknown.filter(item => item.key[0] === PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS);
+    const nonceFields = unknown.filter(item => item.key[0] === PSBT_IN_MUSIG2_PUB_NONCE);
+    const partialSigFields = unknown.filter(item => item.key[0] === PSBT_IN_MUSIG2_PARTIAL_SIG);
+    const tapDerivations = input.tapBip32Derivation ?? [];
+
+    lines.push(`Input ${inputIndex}:`);
+    lines.push(`  BIP373 0x1a participant fields: ${participantFields.length}`);
+    lines.push(`  BIP373 0x1b public nonce fields: ${nonceFields.length}`);
+    lines.push(`  BIP373 0x1c partial signature fields: ${partialSigFields.length}`);
+    lines.push(`  Taproot key signature: ${input.tapKeySig ? `present (${input.tapKeySig.length} bytes)` : 'absent'}`);
+    lines.push(`  Taproot internal key: ${input.tapInternalKey ? compactHex(input.tapInternalKey) : 'absent'}`);
+    lines.push(`  Taproot BIP32 derivations: ${tapDerivations.length}`);
+
+    tapDerivations.forEach((item, index) => {
+      lines.push(
+        `    derivation ${index + 1}: pubkey=${compactHex(item.pubkey)} fp=${bytesToHex(item.masterFingerprint)} path=${item.path} leafHashes=${item.leafHashes.length}`,
+      );
+    });
+
+    lines.push(`  Unknown input records: ${unknown.length}`);
+    unknown.forEach((item, index) => {
+      const type = `0x${item.key[0].toString(16).padStart(2, '0')}`;
+      lines.push(
+        `    ${index + 1}. type=${type} keyLen=${item.key.length} valueLen=${item.value.length} key=${compactHex(item.key)} value=${compactHex(item.value)}`,
+      );
+    });
+  });
+
+  return lines.join('\n');
+}
+
 const MuSig2Round1QRCode: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
@@ -44,6 +103,7 @@ const MuSig2Round1QRCode: React.FC = () => {
   const isFocused = useIsFocused();
   const [isSaving, setIsSaving] = useState(false);
   const [coordinatorPsbtBase64, setCoordinatorPsbtBase64] = useState(psbtBase64);
+  const [returnedPsbtDebug, setReturnedPsbtDebug] = useState<string>();
 
   const round1Psbt = useMemo(() => bitcoin.Psbt.fromBase64(psbtBase64), [psbtBase64]);
   const coordinatorPsbt = useMemo(() => bitcoin.Psbt.fromBase64(coordinatorPsbtBase64), [coordinatorPsbtBase64]);
@@ -74,6 +134,13 @@ const MuSig2Round1QRCode: React.FC = () => {
     (data: string) => {
       try {
         const returnedPsbt = parseReturnedPsbt(data);
+        if (__DEV__) {
+          const debug = describeReturnedPsbt(returnedPsbt, round1Psbt);
+          setReturnedPsbtDebug(debug);
+          console.log('[MuSig2] returned signer PSBT diagnostics:\n' + debug);
+          console.log('[MuSig2] returned signer PSBT base64:', returnedPsbt.toBase64());
+        }
+
         const result = mergeMuSig2Round1Psbt(coordinatorPsbt, returnedPsbt);
         setCoordinatorPsbtBase64(result.psbt.toBase64());
 
@@ -81,10 +148,11 @@ const MuSig2Round1QRCode: React.FC = () => {
           presentAlert({ title: 'MuSig2 Round 1', message: 'This public nonce was already imported.' });
         }
       } catch (error: any) {
+        if (__DEV__) console.log('[MuSig2] returned signer PSBT rejected:', error);
         presentAlert({ title: 'MuSig2 Round 1 rejected', message: error?.message ?? String(error) });
       }
     },
-    [coordinatorPsbt],
+    [coordinatorPsbt, round1Psbt],
   );
 
   useEffect(() => {
@@ -162,6 +230,15 @@ const MuSig2Round1QRCode: React.FC = () => {
         <BlueText>Transport: BBQr animated PSBT</BlueText>
       </View>
 
+      {__DEV__ && returnedPsbtDebug && (
+        <View style={styles.debugBox}>
+          <BlueText bold>Returned signer PSBT debug</BlueText>
+          <BlueText selectable style={styles.debugText}>
+            {returnedPsbtDebug}
+          </BlueText>
+        </View>
+      )}
+
       {!nonceProgress.complete && (
         <>
           <BlueSpacing20 />
@@ -213,6 +290,15 @@ const styles = StyleSheet.create({
   details: {
     gap: 6,
     marginTop: 16,
+  },
+  debugBox: {
+    marginTop: 16,
+    paddingVertical: 12,
+  },
+  debugText: {
+    marginTop: 8,
+    fontSize: 11,
+    lineHeight: 15,
   },
   note: {
     marginTop: 16,
