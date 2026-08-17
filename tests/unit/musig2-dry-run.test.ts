@@ -1,7 +1,9 @@
 import assert from 'assert';
+import * as bitcoin from 'bitcoinjs-lib';
 
 import { createMuSig2DryRun, MUSIG2_DRY_RUN_FAKE_TXID, MUSIG2_DRY_RUN_INPUT_VALUE } from '../../blue_modules/musig2/dry-run';
 import { getMuSig2NonceProgress, PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS } from '../../blue_modules/musig2/psbt';
+import { uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 
 const XPUB_1 =
@@ -35,6 +37,19 @@ describe('MuSig2 synthetic signing dry run', () => {
     const unsignedTx = dryRun.psbt.data.globalMap.unsignedTx.toBuffer();
     assert.ok(unsignedTx.length > 0);
     assert.strictEqual(MUSIG2_DRY_RUN_FAKE_TXID, '11'.repeat(32));
+
+    const globalXpubs = dryRun.psbt.data.globalMap.globalXpub;
+    assert.strictEqual(globalXpubs?.length, 2);
+    assert.deepStrictEqual(
+      globalXpubs?.map(item => ({ fingerprint: uint8ArrayToHex(item.masterFingerprint), path: item.path })).sort((a, b) => a.path.localeCompare(b.path)),
+      [
+        { fingerprint: 'cafebabe', path: "m/0'" },
+        { fingerprint: 'deadbeef', path: "m/0'/0'/0'/2147483646'" },
+      ],
+    );
+
+    const roundTripped = bitcoin.Psbt.fromBase64(dryRun.psbt.toBase64());
+    assert.strictEqual(roundTripped.data.globalMap.globalXpub?.length, 2);
 
     const progress = getMuSig2NonceProgress(dryRun.psbt);
     assert.deepStrictEqual(progress, { collected: 0, expected: 2, complete: false });
