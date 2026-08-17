@@ -165,14 +165,24 @@ const MuSig2Round1QRCode: React.FC = () => {
     handleReturnedRound1Psbt(onBarScanned);
   }, [handleReturnedRound1Psbt, navigation, onBarScanned]);
 
-  const scanReturnedRound1Psbt = useCallback(() => {
-    // Do not pass a function through navigation params. ScanQRCode already
-    // supports returning decoded QR/BBQr data to the launching route via popTo.
+  const importReturnedRound1Psbt = useCallback(() => {
+    // ScanQRCode can either scan QR/BBQr or import a PSBT file and returns the
+    // decoded payload to this route via popTo.
     navigation.navigate('ScanQRCode', {
       launchedBy: 'MuSig2Round1QRCode',
       showFileImportButton: true,
     });
   }, [navigation]);
+
+  const beforeExportPsbt = useCallback(async () => {
+    dynamicQRCode.current?.stopAutoMove();
+    setIsSaving(true);
+  }, []);
+
+  const afterExportPsbt = useCallback(() => {
+    setIsSaving(false);
+    dynamicQRCode.current?.startAutoMove();
+  }, []);
 
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
@@ -200,8 +210,8 @@ const MuSig2Round1QRCode: React.FC = () => {
         <TipBox
           number="1"
           title="MuSig2 Round 1: collect public nonces"
-          description="Scan this same BIP373 PSBT with each MuSig2 signer. Then import each returned PSBT below. BlueWallet copies only validated BIP373 public nonces into the coordinator session."
-          additionalDescription="Do not move to Round 2 until BlueWallet reports NONCES_COMPLETE. Keep the COLDCARD Q powered on after it creates its public nonce."
+          description="Give the same clean BIP373 Round 1 PSBT to each signer by scanning the BBQr below or by exporting a PSBT file. Then import each signer response back into BlueWallet."
+          additionalDescription="Do not move to Round 2 until BlueWallet reports NONCES_COMPLETE. Keep any COLDCARD that produced a nonce powered on until Round 2 is finished."
         />
       )}
 
@@ -227,8 +237,46 @@ const MuSig2Round1QRCode: React.FC = () => {
           BIP373 public nonces: {nonceProgress.collected}/{nonceProgress.expected}
         </BlueText>
         <BlueText>BIP373 participants: {hasBip373Participants ? 'present' : 'missing'}</BlueText>
-        <BlueText>Transport: BBQr animated PSBT</BlueText>
+        <BlueText>Transport: BBQr QR or PSBT file</BlueText>
       </View>
+
+      {!nonceProgress.complete && (
+        <View style={styles.signerTransport}>
+          <BlueText bold>Signer 1</BlueText>
+          <BlueText style={styles.signerHint}>Scan the BBQr above with Signer 1, or export the same Round 1 PSBT for microSD/file signing.</BlueText>
+          {!isSaving && (
+            <SaveFileButton
+              fileName={`${Date.now()}-musig2-round1-signer1.psbt`}
+              fileContent={round1Psbt.toBase64()}
+              beforeOnPress={beforeExportPsbt}
+              afterOnPress={afterExportPsbt}
+              style={[styles.exportButton, stylesHook.exportButton]}
+            >
+              <SquareButton title="Export Signer 1 PSBT" />
+            </SaveFileButton>
+          )}
+
+          <BlueSpacing20 />
+          <BlueText bold>Signer 2</BlueText>
+          <BlueText style={styles.signerHint}>Scan the same BBQr above with Signer 2, or export the same Round 1 PSBT for microSD/file signing.</BlueText>
+          {!isSaving && (
+            <SaveFileButton
+              fileName={`${Date.now()}-musig2-round1-signer2.psbt`}
+              fileContent={round1Psbt.toBase64()}
+              beforeOnPress={beforeExportPsbt}
+              afterOnPress={afterExportPsbt}
+              style={[styles.exportButton, stylesHook.exportButton]}
+            >
+              <SquareButton title="Export Signer 2 PSBT" />
+            </SaveFileButton>
+          )}
+
+          {isSaving && <ActivityIndicator style={styles.exportProgress} />}
+          <BlueText style={styles.transportNote}>
+            The Signer 1 and Signer 2 files contain identical Round 1 PSBT bytes. The signer number is only in the filename so you can keep the two device workflows separate.
+          </BlueText>
+        </View>
+      )}
 
       {__DEV__ && returnedPsbtDebug && (
         <View style={styles.debugBox}>
@@ -244,38 +292,37 @@ const MuSig2Round1QRCode: React.FC = () => {
           <BlueSpacing20 />
           <SquareButton
             testID="MuSig2ScanReturnedRound1Psbt"
-            title="Scan returned Round 1 PSBT"
-            onPress={scanReturnedRound1Psbt}
+            title="Import returned Round 1 PSBT"
+            onPress={importReturnedRound1Psbt}
             style={[styles.exportButton, stylesHook.exportButton]}
           />
+          <BlueText style={styles.importHint}>Use the camera for QR/BBQr, or choose file import on the next screen.</BlueText>
         </>
       )}
 
       <BlueText style={styles.note}>
         {nonceProgress.complete
           ? 'Round 2 PSBT generation is now complete. Partial-signature import and final Schnorr aggregation are the next coordinator milestone, so do not broadcast or fund this experimental flow yet.'
-          : 'Each signer should receive the unchanged Round 1 PSBT. BlueWallet keeps imported public nonces internally and switches the displayed QR to Round 2 only after every input has a nonce from every expected participant.'}
+          : 'Each signer must receive the unchanged clean Round 1 PSBT. BlueWallet keeps imported public nonces internally and switches the displayed QR to Round 2 only after every expected nonce is present.'}
       </BlueText>
 
-      <BlueSpacing20 />
-      {isSaving ? (
-        <ActivityIndicator />
-      ) : (
-        <SaveFileButton
-          fileName={`${Date.now()}-musig2-round${phase}.psbt`}
-          fileContent={displayedPsbt.toBase64()}
-          beforeOnPress={async () => {
-            dynamicQRCode.current?.stopAutoMove();
-            setIsSaving(true);
-          }}
-          afterOnPress={() => {
-            setIsSaving(false);
-            dynamicQRCode.current?.startAutoMove();
-          }}
-          style={[styles.exportButton, stylesHook.exportButton]}
-        >
-          <SquareButton title={`Share Round ${phase} PSBT`} />
-        </SaveFileButton>
+      {nonceProgress.complete && (
+        <>
+          <BlueSpacing20 />
+          {isSaving ? (
+            <ActivityIndicator />
+          ) : (
+            <SaveFileButton
+              fileName={`${Date.now()}-musig2-round2.psbt`}
+              fileContent={displayedPsbt.toBase64()}
+              beforeOnPress={beforeExportPsbt}
+              afterOnPress={afterExportPsbt}
+              style={[styles.exportButton, stylesHook.exportButton]}
+            >
+              <SquareButton title="Share Round 2 PSBT" />
+            </SaveFileButton>
+          )}
+        </>
       )}
     </ScrollView>
   );
@@ -290,6 +337,25 @@ const styles = StyleSheet.create({
   details: {
     gap: 6,
     marginTop: 16,
+  },
+  signerTransport: {
+    gap: 8,
+    marginTop: 20,
+  },
+  signerHint: {
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  transportNote: {
+    marginTop: 10,
+    lineHeight: 20,
+  },
+  exportProgress: {
+    marginTop: 8,
+  },
+  importHint: {
+    marginTop: 8,
+    lineHeight: 20,
   },
   debugBox: {
     marginTop: 16,
