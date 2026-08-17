@@ -34,7 +34,7 @@ function parseReturnedPsbt(data: string): bitcoin.Psbt {
     return bitcoin.Psbt.fromBase64(payload);
   } catch (_) {}
 
-  throw new Error('Scanned data is not a valid PSBT');
+  throw new Error('Scanned or imported data is not a valid PSBT');
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -141,6 +141,9 @@ const MuSig2Round1QRCode: React.FC = () => {
           console.log('[MuSig2] returned signer PSBT base64:', returnedPsbt.toBase64());
         }
 
+        // The returned PSBT can come from either signer and by either QR/BBQr
+        // or file import. The BIP373 participant key identifies which signer
+        // contributed the nonce; UI transport does not assign signer identity.
         const result = mergeMuSig2Round1Psbt(coordinatorPsbt, returnedPsbt);
         setCoordinatorPsbtBase64(result.psbt.toBase64());
 
@@ -158,16 +161,16 @@ const MuSig2Round1QRCode: React.FC = () => {
   useEffect(() => {
     if (!onBarScanned) return;
 
-    // ScanQRCode returns serializable scan data to this route. Consume it once,
-    // then clear the route param so a coordinator state update cannot import the
-    // same nonce a second time.
+    // ScanQRCode returns serializable QR or file-import data to this route.
+    // Consume it once, then clear the route param so a coordinator state update
+    // cannot import the same nonce a second time.
     navigation.setParams({ onBarScanned: undefined });
     handleReturnedRound1Psbt(onBarScanned);
   }, [handleReturnedRound1Psbt, navigation, onBarScanned]);
 
   const importReturnedRound1Psbt = useCallback(() => {
-    // ScanQRCode can either scan QR/BBQr or import a PSBT file and returns the
-    // decoded payload to this route via popTo.
+    // Either signer can return its nonce-bearing Round 1 PSBT. ScanQRCode can
+    // scan QR/BBQr or import a PSBT file and returns either payload via popTo.
     navigation.navigate('ScanQRCode', {
       launchedBy: 'MuSig2Round1QRCode',
       showFileImportButton: true,
@@ -204,13 +207,13 @@ const MuSig2Round1QRCode: React.FC = () => {
           number="2"
           title="MuSig2 Round 2: both public nonces collected"
           description="This BIP373 PSBT now contains every required public nonce. Scan this exact Round 2 PSBT with each signer to request its partial signature."
-          additionalDescription="Keep the COLDCARD Q powered on. Its secret nonce is still held only in volatile memory and must remain tied to this exact signing session."
+          additionalDescription="Keep each COLDCARD that created a nonce powered on. Its secret nonce remains tied to this exact signing session."
         />
       ) : (
         <TipBox
           number="1"
           title="MuSig2 Round 1: collect public nonces"
-          description="Give the same clean BIP373 Round 1 PSBT to each signer by scanning the BBQr below or by exporting a PSBT file. Then import each signer response back into BlueWallet."
+          description="Give the same clean Round 1 PSBT to either signer by scanning the BBQr below or exporting the signer PSBT file. Import each returned signer PSBT by QR/BBQr or file."
           additionalDescription="Do not move to Round 2 until BlueWallet reports NONCES_COMPLETE. Keep any COLDCARD that produced a nonce powered on until Round 2 is finished."
         />
       )}
@@ -237,44 +240,28 @@ const MuSig2Round1QRCode: React.FC = () => {
           BIP373 public nonces: {nonceProgress.collected}/{nonceProgress.expected}
         </BlueText>
         <BlueText>BIP373 participants: {hasBip373Participants ? 'present' : 'missing'}</BlueText>
-        <BlueText>Transport: BBQr QR or PSBT file</BlueText>
+        <BlueText>Transport: BBQr QR or PSBT file, either signer</BlueText>
       </View>
 
       {!nonceProgress.complete && (
         <View style={styles.signerTransport}>
-          <BlueText bold>Signer 1</BlueText>
-          <BlueText style={styles.signerHint}>Scan the BBQr above with Signer 1, or export the same Round 1 PSBT for microSD/file signing.</BlueText>
-          {!isSaving && (
-            <SaveFileButton
-              fileName={`${Date.now()}-musig2-round1-signer1.psbt`}
-              fileContent={round1Psbt.toBase64()}
-              beforeOnPress={beforeExportPsbt}
-              afterOnPress={afterExportPsbt}
-              style={[styles.exportButton, stylesHook.exportButton]}
-            >
-              <SquareButton title="Export Signer 1 PSBT" />
-            </SaveFileButton>
-          )}
-
-          <BlueSpacing20 />
-          <BlueText bold>Signer 2</BlueText>
-          <BlueText style={styles.signerHint}>Scan the same BBQr above with Signer 2, or export the same Round 1 PSBT for microSD/file signing.</BlueText>
-          {!isSaving && (
-            <SaveFileButton
-              fileName={`${Date.now()}-musig2-round1-signer2.psbt`}
-              fileContent={round1Psbt.toBase64()}
-              beforeOnPress={beforeExportPsbt}
-              afterOnPress={afterExportPsbt}
-              style={[styles.exportButton, stylesHook.exportButton]}
-            >
-              <SquareButton title="Export Signer 2 PSBT" />
-            </SaveFileButton>
-          )}
-
-          {isSaving && <ActivityIndicator style={styles.exportProgress} />}
-          <BlueText style={styles.transportNote}>
-            The Signer 1 and Signer 2 files contain identical Round 1 PSBT bytes. The signer number is only in the filename so you can keep the two device workflows separate.
+          <BlueText bold>Signer transport</BlueText>
+          <BlueText style={styles.signerHint}>
+            The exported Round 1 PSBT is signer-agnostic. Use the same file for Signer 1 or Signer 2.
           </BlueText>
+          {isSaving ? (
+            <ActivityIndicator />
+          ) : (
+            <SaveFileButton
+              fileName={`${Date.now()}-musig2-round1-signer.psbt`}
+              fileContent={round1Psbt.toBase64()}
+              beforeOnPress={beforeExportPsbt}
+              afterOnPress={afterExportPsbt}
+              style={[styles.exportButton, stylesHook.exportButton]}
+            >
+              <SquareButton title="Export signer PSBT" />
+            </SaveFileButton>
+          )}
         </View>
       )}
 
@@ -292,18 +279,20 @@ const MuSig2Round1QRCode: React.FC = () => {
           <BlueSpacing20 />
           <SquareButton
             testID="MuSig2ScanReturnedRound1Psbt"
-            title="Import returned Round 1 PSBT"
+            title="Import signer PSBT"
             onPress={importReturnedRound1Psbt}
             style={[styles.exportButton, stylesHook.exportButton]}
           />
-          <BlueText style={styles.importHint}>Use the camera for QR/BBQr, or choose file import on the next screen.</BlueText>
+          <BlueText style={styles.importHint}>
+            Accepts the returned nonce-bearing PSBT from either signer. Scan QR/BBQr or choose a PSBT file on the next screen.
+          </BlueText>
         </>
       )}
 
       <BlueText style={styles.note}>
         {nonceProgress.complete
           ? 'Round 2 PSBT generation is now complete. Partial-signature import and final Schnorr aggregation are the next coordinator milestone, so do not broadcast or fund this experimental flow yet.'
-          : 'Each signer must receive the unchanged clean Round 1 PSBT. BlueWallet keeps imported public nonces internally and switches the displayed QR to Round 2 only after every expected nonce is present.'}
+          : 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'}
       </BlueText>
 
       {nonceProgress.complete && (
@@ -345,13 +334,6 @@ const styles = StyleSheet.create({
   signerHint: {
     lineHeight: 20,
     marginBottom: 4,
-  },
-  transportNote: {
-    marginTop: 10,
-    lineHeight: 20,
-  },
-  exportProgress: {
-    marginTop: 8,
   },
   importHint: {
     marginTop: 8,
