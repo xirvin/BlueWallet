@@ -56,7 +56,7 @@ function addParticipantGlobalXpubs(psbt: Psbt, wallet: HDTaprootMuSig2Wallet): v
  */
 export function createMuSig2DryRun(wallet: HDTaprootMuSig2Wallet): MuSig2DryRun {
   if (!wallet.hasCompleteExtendedParticipantMetadata()) {
-    throw new Error('MuSig2 dry run requires two signer [fingerprint/path]xpub key expressions');
+    throw new Error('MuSig2 dry run requires complete [fingerprint/path]xpub key expressions for every signer');
   }
 
   const fundingAddress = wallet._getExternalAddressByIndex(0);
@@ -80,7 +80,7 @@ export function createMuSig2DryRun(wallet: HDTaprootMuSig2Wallet): MuSig2DryRun 
   if (result.tx) throw new Error('MuSig2 dry run unexpectedly produced a signed transaction');
 
   // BIP174 global XPUB records give hardware signers enough public metadata to
-  // identify or reconstruct the BIP390 MuSig2 wallet from the two account xpubs.
+  // identify or reconstruct the BIP390 MuSig2 wallet from all account xpubs.
   // They contain no private key material.
   addParticipantGlobalXpubs(result.psbt, wallet);
 
