@@ -4,6 +4,16 @@ import * as bitcoin from 'bitcoinjs-lib';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 
+import {
+  MuSig2CoordinatorState,
+  MuSig2PersistedFinalization,
+  clearMuSig2CoordinatorSession,
+  deriveMuSig2ActiveState,
+  isMuSig2TerminalState,
+  loadMuSig2CoordinatorSession,
+  saveMuSig2CoordinatorSession,
+  transitionMuSig2State,
+} from '../../blue_modules/musig2/coordinator-session';
 import { finalizeMuSig2Psbt } from '../../blue_modules/musig2/finalize';
 import {
   getMuSig2NonceProgress,
@@ -29,14 +39,7 @@ import { SendDetailsStackParamList } from '../../navigation/SendDetailsStackPara
 
 type RouteParams = RouteProp<SendDetailsStackParamList, 'MuSig2Round1QRCode'>;
 type NavigationProps = NativeStackNavigationProp<SendDetailsStackParamList, 'MuSig2Round1QRCode'>;
-
-type FinalizationState = {
-  psbtBase64: string;
-  rawTransactionHex: string;
-  txid: string;
-  verifiedPartialSignatures: number;
-  finalSignatureCount: number;
-};
+type FinalizationState = MuSig2PersistedFinalization;
 
 function parseReturnedPsbt(data: string): bitcoin.Psbt {
   const payload = data.trim();
@@ -108,15 +111,42 @@ function describeReturnedPsbt(returnedPsbt: bitcoin.Psbt, originalPsbt: bitcoin.
   return lines.join('\n');
 }
 
+function finalizationFromResult(result: ReturnType<typeof finalizeMuSig2Psbt>): FinalizationState {
+  return {
+    psbtBase64: result.psbt.toBase64(),
+    rawTransactionHex: result.rawTransactionHex,
+    txid: result.txid,
+    verifiedPartialSignatures: result.verifiedPartialSignatures,
+    finalSignatureCount: result.finalSignatures.length,
+  };
+}
+
+function terminalTitle(state: MuSig2CoordinatorState): string {
+  switch (state) {
+    case 'CANCELLED':
+      return 'MuSig2 session cancelled';
+    case 'NONCE_INVALIDATED':
+      return 'MuSig2 nonce session invalidated';
+    case 'FAILED':
+      return 'MuSig2 session failed';
+    default:
+      return 'MuSig2 session stopped';
+  }
+}
+
 const MuSig2Round1QRCode: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const { params } = useRoute<RouteParams>();
   const { psbtBase64, walletID, onBarScanned } = params;
   const dynamicQRCode = useRef<DynamicQRCode>(null);
+  const persistenceWarningShown = useRef(false);
   const isFocused = useIsFocused();
   const [isSaving, setIsSaving] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [coordinatorPsbtBase64, setCoordinatorPsbtBase64] = useState(psbtBase64);
+  const [coordinatorState, setCoordinatorState] = useState<MuSig2CoordinatorState>('CREATED');
+  const [lastError, setLastError] = useState<string>();
   const [returnedPsbtDebug, setReturnedPsbtDebug] = useState<string>();
   const [finalization, setFinalization] = useState<FinalizationState>();
 
@@ -138,6 +168,8 @@ const MuSig2Round1QRCode: React.FC = () => {
   const displayedPsbt = finalizedPsbt ?? round2SignerPsbt ?? round1Psbt;
   const phase = finalization ? 3 : nonceProgress.complete ? 2 : 1;
   const signingComplete = partialSignatureProgress?.complete ?? false;
+  const blockedTerminalState =
+    coordinatorState === 'CANCELLED' || coordinatorState === 'NONCE_INVALIDATED' || coordinatorState === 'FAILED';
 
   const hasBip373Participants = useMemo(
     () =>
@@ -148,19 +180,122 @@ const MuSig2Round1QRCode: React.FC = () => {
     [round1Psbt],
   );
 
+  const transitionTo = useCallback((nextState: MuSig2CoordinatorState, error?: string) => {
+    setCoordinatorState(currentState => {
+      try {
+        return transitionMuSig2State(currentState, nextState);
+      } catch (transitionError) {
+        if (__DEV__) console.log('[MuSig2] invalid coordinator transition:', transitionError);
+        return 'FAILED';
+      }
+    });
+    setLastError(error);
+  }, []);
+
   useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const stored = await loadMuSig2CoordinatorSession(walletID, round1Psbt);
+        if (!mounted) return;
+
+        if (!stored) {
+          setCoordinatorState('COLLECTING_NONCES');
+          setLastError(undefined);
+          return;
+        }
+
+        const restoredPsbt = bitcoin.Psbt.fromBase64(stored.coordinatorPsbtBase64);
+        setCoordinatorPsbtBase64(stored.coordinatorPsbtBase64);
+        setLastError(stored.lastError);
+
+        if (stored.state === 'FINALIZED') {
+          const activeState = deriveMuSig2ActiveState(restoredPsbt);
+          if (activeState !== 'SIGNATURES_COMPLETE') {
+            throw new Error(`Stored finalized session has inconsistent coordinator state ${activeState}`);
+          }
+          const recomputed = finalizationFromResult(finalizeMuSig2Psbt(restoredPsbt));
+          if (
+            !stored.finalization ||
+            stored.finalization.txid !== recomputed.txid ||
+            stored.finalization.rawTransactionHex !== recomputed.rawTransactionHex
+          ) {
+            throw new Error('Stored MuSig2 final transaction does not match fresh cryptographic finalization');
+          }
+          setFinalization(recomputed);
+          setCoordinatorState('FINALIZED');
+          return;
+        }
+
+        if (isMuSig2TerminalState(stored.state)) {
+          setCoordinatorState(stored.state);
+          return;
+        }
+
+        // The PSBT is the source of truth for active progress. This also
+        // cryptographically re-verifies every persisted partial signature.
+        setCoordinatorState(deriveMuSig2ActiveState(restoredPsbt));
+      } catch (error: any) {
+        if (!mounted) return;
+        const message = `Could not safely restore the MuSig2 session: ${error?.message ?? String(error)}`;
+        if (__DEV__) console.log('[MuSig2] session restore failed:', error);
+        setCoordinatorPsbtBase64(psbtBase64);
+        setCoordinatorState('FAILED');
+        setFinalization(undefined);
+        setLastError(message);
+      } finally {
+        if (mounted) setSessionReady(true);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [psbtBase64, round1Psbt, walletID]);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+
+    saveMuSig2CoordinatorSession(
+      walletID,
+      round1Psbt,
+      coordinatorState,
+      coordinatorPsbtBase64,
+      finalization,
+      lastError,
+    ).catch(error => {
+      if (__DEV__) console.log('[MuSig2] coordinator persistence failed:', error);
+      if (!persistenceWarningShown.current) {
+        persistenceWarningShown.current = true;
+        presentAlert({
+          title: 'MuSig2 session persistence warning',
+          message:
+            'BlueWallet could not save the current coordinator session. Keep the app open and export the current PSBT before continuing.',
+        });
+      }
+    });
+  }, [coordinatorPsbtBase64, coordinatorState, finalization, lastError, round1Psbt, sessionReady, walletID]);
+
+  useEffect(() => {
+    if (!sessionReady || blockedTerminalState) {
+      dynamicQRCode.current?.stopAutoMove();
+      return;
+    }
     if (isFocused) {
       dynamicQRCode.current?.forceUseBBQR();
       dynamicQRCode.current?.startAutoMove();
     } else {
       dynamicQRCode.current?.stopAutoMove();
     }
-  }, [isFocused, phase]);
+  }, [blockedTerminalState, isFocused, phase, sessionReady]);
 
   const handleReturnedSignerPsbt = useCallback(
     (data: string) => {
       try {
-        if (finalization) throw new Error('This MuSig2 signing session is already finalized');
+        if (isMuSig2TerminalState(coordinatorState)) {
+          throw new Error(`This MuSig2 signing session is ${coordinatorState.toLowerCase()}`);
+        }
 
         const returnedPsbt = parseReturnedPsbt(data);
         if (__DEV__) {
@@ -174,6 +309,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         if (!currentNonceProgress.complete) {
           const result = mergeMuSig2Round1Psbt(coordinatorPsbt, returnedPsbt);
           setCoordinatorPsbtBase64(result.psbt.toBase64());
+          if (result.complete) transitionTo('NONCES_COMPLETE');
           if (result.added === 0) {
             presentAlert({ title: 'MuSig2 Round 1', message: 'This public nonce was already imported.' });
           }
@@ -182,31 +318,45 @@ const MuSig2Round1QRCode: React.FC = () => {
 
         const result = mergeMuSig2Round2Psbt(coordinatorPsbt, returnedPsbt);
         setCoordinatorPsbtBase64(result.psbt.toBase64());
+        if (result.complete) {
+          transitionTo('SIGNATURES_COMPLETE');
+        } else if (result.added > 0 && coordinatorState === 'NONCES_COMPLETE') {
+          transitionTo('COLLECTING_PARTIAL_SIGNATURES');
+        }
+
         if (result.added === 0) {
           presentAlert({ title: 'MuSig2 Round 2', message: 'This partial signature was already imported.' });
         } else if (result.complete) {
           presentAlert({
             title: 'MuSig2 Round 2 complete',
-            message: 'All expected BIP373 partial signatures have been collected. Verify and finalize them next.',
+            message: 'All expected and cryptographically valid BIP373 partial signatures have been collected.',
           });
         }
       } catch (error: any) {
+        const message = error?.message ?? String(error);
         if (__DEV__) console.log('[MuSig2] returned signer PSBT rejected:', error);
+
+        if (message.includes('Conflicting MuSig2 public nonce')) {
+          transitionTo('NONCE_INVALIDATED', message);
+        } else if (message.includes('Conflicting MuSig2 partial signature')) {
+          transitionTo('FAILED', message);
+        }
+
         presentAlert({
           title: nonceProgress.complete ? 'MuSig2 Round 2 rejected' : 'MuSig2 Round 1 rejected',
-          message: error?.message ?? String(error),
+          message,
         });
       }
     },
-    [coordinatorPsbt, finalization, nonceProgress.complete, round1Psbt],
+    [coordinatorPsbt, coordinatorState, nonceProgress.complete, round1Psbt, transitionTo],
   );
 
   useEffect(() => {
-    if (!onBarScanned) return;
+    if (!onBarScanned || !sessionReady) return;
 
     navigation.setParams({ onBarScanned: undefined });
     handleReturnedSignerPsbt(onBarScanned);
-  }, [handleReturnedSignerPsbt, navigation, onBarScanned]);
+  }, [handleReturnedSignerPsbt, navigation, onBarScanned, sessionReady]);
 
   const importReturnedSignerPsbt = useCallback(() => {
     navigation.navigate('ScanQRCode', {
@@ -217,23 +367,58 @@ const MuSig2Round1QRCode: React.FC = () => {
 
   const verifyAndFinalize = useCallback(() => {
     try {
+      if (coordinatorState !== 'SIGNATURES_COMPLETE') {
+        throw new Error(`MuSig2 cannot finalize from coordinator state ${coordinatorState}`);
+      }
       const result = finalizeMuSig2Psbt(coordinatorPsbt);
-      setFinalization({
-        psbtBase64: result.psbt.toBase64(),
-        rawTransactionHex: result.rawTransactionHex,
-        txid: result.txid,
-        verifiedPartialSignatures: result.verifiedPartialSignatures,
-        finalSignatureCount: result.finalSignatures.length,
-      });
+      const nextFinalization = finalizationFromResult(result);
+      setFinalization(nextFinalization);
+      transitionTo('FINALIZED');
       presentAlert({
         title: 'MuSig2 finalized',
         message: `Verified ${result.verifiedPartialSignatures} partial signatures and created ${result.finalSignatures.length} valid BIP340 Schnorr signature(s).`,
       });
     } catch (error: any) {
+      const message = error?.message ?? String(error);
       if (__DEV__) console.log('[MuSig2] finalization rejected:', error);
-      presentAlert({ title: 'MuSig2 finalization rejected', message: error?.message ?? String(error) });
+      transitionTo('FAILED', message);
+      presentAlert({ title: 'MuSig2 finalization rejected', message });
     }
-  }, [coordinatorPsbt]);
+  }, [coordinatorPsbt, coordinatorState, transitionTo]);
+
+  const cancelSigningSession = useCallback(() => {
+    presentAlert({
+      title: 'Cancel MuSig2 signing session?',
+      message:
+        'Any collected nonce session will be abandoned. To sign again, start a fresh session and make each hardware signer generate fresh nonces.',
+      buttons: [
+        { text: 'Keep signing', style: 'cancel' },
+        {
+          text: 'Cancel session',
+          style: 'destructive',
+          onPress: () => transitionTo('CANCELLED', 'Signing session cancelled by user'),
+        },
+      ],
+    });
+  }, [transitionTo]);
+
+  const restartSigningSession = useCallback(async () => {
+    try {
+      await clearMuSig2CoordinatorSession(walletID, round1Psbt);
+      setCoordinatorPsbtBase64(psbtBase64);
+      setFinalization(undefined);
+      setReturnedPsbtDebug(undefined);
+      setLastError(undefined);
+      setCoordinatorState(currentState => transitionMuSig2State(currentState, 'COLLECTING_NONCES'));
+      presentAlert({
+        title: 'Fresh MuSig2 session started',
+        message:
+          'Discard the old signer session. If a COLDCARD generated a nonce in the previous session, restart that signer before creating the new Round 1 nonce.',
+      });
+    } catch (error: any) {
+      presentAlert({ title: 'Could not restart MuSig2 session', message: error?.message ?? String(error) });
+    }
+  }, [psbtBase64, round1Psbt, walletID]);
 
   const beforeExportPsbt = useCallback(async () => {
     dynamicQRCode.current?.stopAutoMove();
@@ -245,19 +430,20 @@ const MuSig2Round1QRCode: React.FC = () => {
     dynamicQRCode.current?.startAutoMove();
   }, []);
 
-  const coordinatorState = finalization
-    ? 'FINALIZED'
-    : !nonceProgress.complete
-      ? 'COLLECTING_NONCES'
-      : signingComplete
-        ? 'SIGNATURES_COMPLETE'
-        : 'COLLECTING_PARTIAL_SIGNATURES';
-
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
     warning: { color: colors.redText },
     exportButton: { backgroundColor: colors.buttonDisabledBackgroundColor },
   });
+
+  if (!sessionReady) {
+    return (
+      <View style={[styles.loading, stylesHook.root]}>
+        <ActivityIndicator />
+        <BlueText style={styles.loadingText}>Restoring and validating MuSig2 signing session…</BlueText>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -268,11 +454,18 @@ const MuSig2Round1QRCode: React.FC = () => {
       contentContainerStyle={styles.container}
       testID="MuSig2Round1QRCodeScrollView"
     >
-      {finalization ? (
+      {blockedTerminalState ? (
+        <TipBox
+          number="!"
+          title={terminalTitle(coordinatorState)}
+          description="Signer QR, export, import, and finalization controls are disabled so this session cannot be reused accidentally."
+          additionalDescription="Start a fresh session only after discarding the previous hardware-signer nonce state."
+        />
+      ) : finalization ? (
         <TipBox
           number="3"
           title="MuSig2 finalized"
-          description="BlueWallet cryptographically verified every BIP373 partial signature, aggregated the final BIP340 Schnorr signature, and finalized the Taproot key-path witness."
+          description="BlueWallet cryptographically verified every BIP373 partial signature, aggregated the final BIP340 Schnorr signature, finalized the Taproot key-path witness, and re-verified the completed witness."
           additionalDescription="This experimental dry-run transaction uses a nonexistent input. Broadcast remains intentionally unavailable."
         />
       ) : nonceProgress.complete ? (
@@ -281,8 +474,8 @@ const MuSig2Round1QRCode: React.FC = () => {
           title={signingComplete ? 'MuSig2 Round 2: partial signatures complete' : 'MuSig2 Round 2: collect partial signatures'}
           description={
             signingComplete
-              ? 'BlueWallet has collected every expected BIP373 partial signature. Verify them cryptographically and finalize the transaction next.'
-              : 'Give this same Round 2 PSBT to either signer by scanning the BBQr or exporting the signer PSBT file. Import each signed response by QR/BBQr or file.'
+              ? 'BlueWallet has already cryptographically verified every imported BIP373 partial signature. Final aggregation performs a second verification pass.'
+              : 'Give this same frozen Round 2 PSBT to either signer by scanning the BBQr or exporting the signer PSBT file. Import each signed response by QR/BBQr or file.'
           }
           additionalDescription="Keep each COLDCARD that created a nonce powered on until it has produced its Round 2 partial signature."
         />
@@ -301,13 +494,15 @@ const MuSig2Round1QRCode: React.FC = () => {
         </BlueText>
       )}
 
-      <DynamicQRCode
-        key={`musig2-round-${phase}`}
-        value={displayedPsbt.toHex()}
-        ref={dynamicQRCode}
-        walletID={walletID}
-        hideControls={false}
-      />
+      {!blockedTerminalState && (
+        <DynamicQRCode
+          key={`musig2-round-${phase}`}
+          value={displayedPsbt.toHex()}
+          ref={dynamicQRCode}
+          walletID={walletID}
+          hideControls={false}
+        />
+      )}
 
       <View style={styles.details}>
         <BlueText bold>Coordinator state</BlueText>
@@ -328,11 +523,25 @@ const MuSig2Round1QRCode: React.FC = () => {
             <BlueText selectable>TXID: {finalization.txid}</BlueText>
           </>
         )}
+        {lastError && <BlueText style={[styles.warning, stylesHook.warning]}>{lastError}</BlueText>}
         <BlueText>BIP373 participants: {hasBip373Participants ? 'present' : 'missing'}</BlueText>
+        <BlueText>Session persistence: public coordinator state only</BlueText>
         <BlueText>Transport: BBQr QR or PSBT file, either signer</BlueText>
       </View>
 
-      {!signingComplete && !finalization && (
+      {blockedTerminalState && (
+        <>
+          <BlueSpacing20 />
+          <SquareButton
+            testID="MuSig2RestartSession"
+            title="Start fresh MuSig2 session"
+            onPress={restartSigningSession}
+            style={[styles.exportButton, stylesHook.exportButton]}
+          />
+        </>
+      )}
+
+      {!blockedTerminalState && !signingComplete && !finalization && (
         <View style={styles.signerTransport}>
           <BlueText bold>Signer transport</BlueText>
           <BlueText style={styles.signerHint}>
@@ -365,7 +574,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         </View>
       )}
 
-      {!signingComplete && !finalization && (
+      {!blockedTerminalState && !signingComplete && !finalization && (
         <>
           <BlueSpacing20 />
           <SquareButton
@@ -377,12 +586,12 @@ const MuSig2Round1QRCode: React.FC = () => {
           <BlueText style={styles.importHint}>
             {phase === 1
               ? 'Accepts the returned nonce-bearing PSBT from either signer. Scan QR/BBQr or choose a PSBT file on the next screen.'
-              : 'Accepts a BIP373 partial-signature PSBT from either signer. Scan its QR/BBQr or choose the returned PSBT file on the next screen.'}
+              : 'Accepts a BIP373 partial-signature PSBT from either signer. Each partial signature is cryptographically verified before BlueWallet stores it.'}
           </BlueText>
         </>
       )}
 
-      {signingComplete && !finalization && (
+      {!blockedTerminalState && signingComplete && !finalization && (
         <>
           <BlueSpacing20 />
           <SquareButton
@@ -392,7 +601,7 @@ const MuSig2Round1QRCode: React.FC = () => {
             style={[styles.exportButton, stylesHook.exportButton]}
           />
           <BlueText style={styles.importHint}>
-            Reconstructs the BIP328 and Taproot signing context, verifies every partial signature, aggregates the final Schnorr signature, and finalizes the key-path witness.
+            Re-verifies every partial signature, aggregates the final Schnorr signature, verifies it immediately before Taproot finalization, and verifies the completed witness again afterward.
           </BlueText>
         </>
       )}
@@ -428,14 +637,28 @@ const MuSig2Round1QRCode: React.FC = () => {
         </View>
       )}
 
+      {!blockedTerminalState && !finalization && (
+        <>
+          <BlueSpacing20 />
+          <SquareButton
+            testID="MuSig2CancelSession"
+            title="Cancel MuSig2 session"
+            onPress={cancelSigningSession}
+            style={[styles.exportButton, stylesHook.exportButton]}
+          />
+        </>
+      )}
+
       <BlueText style={styles.note}>
-        {finalization
-          ? 'Final Schnorr verification passed and the Taproot witness is complete. Broadcast is deliberately disabled for this dry-run flow because its input outpoint does not exist.'
-          : !nonceProgress.complete
-            ? 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'
-            : signingComplete
-              ? 'All partial signatures are collected. Use Verify & finalize MuSig2 to perform cryptographic verification before aggregation.'
-              : 'BlueWallet stores returned partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so both signers receive the same nonce-complete PSBT.'}
+        {blockedTerminalState
+          ? 'This session is a hard stop. Do not reuse any secret nonce associated with it.'
+          : finalization
+            ? 'Final Schnorr verification passed, the Taproot witness is complete, and the completed witness was re-verified. Broadcast is deliberately disabled for this dry-run flow because its input outpoint does not exist.'
+            : !nonceProgress.complete
+              ? 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'
+              : signingComplete
+                ? 'All imported partial signatures already passed individual cryptographic verification. Finalization performs the verification again before aggregation.'
+                : 'BlueWallet stores verified partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so both signers receive the same nonce-complete PSBT.'}
       </BlueText>
     </ScrollView>
   );
@@ -446,6 +669,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 20,
+  },
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    textAlign: 'center',
   },
   details: {
     gap: 6,
