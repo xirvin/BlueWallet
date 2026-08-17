@@ -39,7 +39,7 @@ describe('MuSig2 BIP327/BIP328/BIP373', () => {
 
   it('matches the official BIP327 nonce generation vector', () => {
     const result = nonceGen({
-      random32: hexToUint8Array('0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F'),
+      random32: hexToUint8Array('0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F'),
       secretKey: hexToUint8Array('0202020202020202020202020202020202020202020202020202020202020202'),
       publicKey: hexToUint8Array('024D4B6CD1361032CA9BD2AEB9D900AA4D45D9EAD80AC9423374C451A7254D0766'),
       aggregatePublicKey: hexToUint8Array('0707070707070707070707070707070707070707070707070707070707070707'),
@@ -63,7 +63,19 @@ describe('MuSig2 BIP327/BIP328/BIP373', () => {
     assert.notStrictEqual(wallet._getExternalAddressByIndex(0), wallet._getExternalAddressByIndex(1));
   });
 
-  it('serializes and restores aggregate key plus two-signer coordinator metadata', () => {
+  it('supports every N-of-N participant count from 2 through 7', () => {
+    for (let count = 2; count <= 7; count++) {
+      const publicKeys = Array.from({ length: count }, (_, index) => secp.getPublicKey(secp.etc.numberToBytesBE(BigInt(index + 1)), true));
+      const wallet = new HDTaprootMuSig2Wallet();
+      wallet.setParticipantPublicKeys(publicKeys);
+
+      assert.strictEqual(wallet.getSignerCount(), count);
+      assert.strictEqual(wallet.hasParticipantPublicKeys(), true);
+      assert.deepStrictEqual(wallet.getAggregatePublicKey(), getPlainPublicKey(keyAgg(publicKeys)));
+    }
+  });
+
+  it('serializes and restores aggregate key plus coordinator metadata', () => {
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setLabel('MuSig2 coordinator test');
     wallet.setParticipants([
@@ -117,7 +129,7 @@ describe('MuSig2 BIP327/BIP328/BIP373', () => {
     );
   });
 
-  it('rejects incomplete or ambiguous two-signer metadata', () => {
+  it('rejects out-of-range, duplicate, or malformed participant metadata', () => {
     const wallet = new HDTaprootMuSig2Wallet();
     const signer = {
       publicKeyHex: uint8ArrayToHex(BIP327_KEYS[0]),
@@ -125,7 +137,12 @@ describe('MuSig2 BIP327/BIP328/BIP373', () => {
       derivationPath: "m/86'/0'/0'",
     };
 
-    assert.throws(() => wallet.setParticipants([signer]), /exactly two signers/);
+    assert.throws(() => wallet.setParticipants([signer]), /between 2 and 7 signers/);
+
+    const eightSigners = Array.from({ length: 8 }, (_, index) => ({
+      publicKeyHex: uint8ArrayToHex(secp.getPublicKey(secp.etc.numberToBytesBE(BigInt(index + 1)), true)),
+    }));
+    assert.throws(() => wallet.setParticipants(eightSigners), /between 2 and 7 signers/);
     assert.throws(() => wallet.setParticipants([signer, signer]), /must be distinct/);
     assert.throws(
       () =>
