@@ -39,7 +39,7 @@ const MuSig2Round1QRCode: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const { params } = useRoute<RouteParams>();
-  const { psbtBase64, walletID } = params;
+  const { psbtBase64, walletID, onBarScanned } = params;
   const dynamicQRCode = useRef<DynamicQRCode>(null);
   const isFocused = useIsFocused();
   const [isSaving, setIsSaving] = useState(false);
@@ -87,12 +87,24 @@ const MuSig2Round1QRCode: React.FC = () => {
     [coordinatorPsbt],
   );
 
+  useEffect(() => {
+    if (!onBarScanned) return;
+
+    // ScanQRCode returns serializable scan data to this route. Consume it once,
+    // then clear the route param so a coordinator state update cannot import the
+    // same nonce a second time.
+    navigation.setParams({ onBarScanned: undefined });
+    handleReturnedRound1Psbt(onBarScanned);
+  }, [handleReturnedRound1Psbt, navigation, onBarScanned]);
+
   const scanReturnedRound1Psbt = useCallback(() => {
+    // Do not pass a function through navigation params. ScanQRCode already
+    // supports returning decoded QR/BBQr data to the launching route via popTo.
     navigation.navigate('ScanQRCode', {
+      launchedBy: 'MuSig2Round1QRCode',
       showFileImportButton: true,
-      onBarScanned: handleReturnedRound1Psbt,
     });
-  }, [handleReturnedRound1Psbt, navigation]);
+  }, [navigation]);
 
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
