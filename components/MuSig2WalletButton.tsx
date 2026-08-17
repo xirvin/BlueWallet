@@ -34,13 +34,23 @@ interface MuSig2WalletButtonProps {
   };
 }
 
+const DEBUG_SIGNER_1_BSMS = `BSMS 1.0
+tr([52c4ead8/86'/0'/0']xpub6CTWUpMsz6J8agBdjV6PqsCZfdrgtQj7nasH5D4APNRoiZc3xcFCYFAumrWLcuz9U4EagrhZgMqRW3tibSvt5ie5EwzguZ6NMQrVXpEFBz9/*)#60gtkx8s
+No path restrictions
+bc1pp2hgkzf0hw7wug5e8vhwr828wg6ynqxwyz5d9rjc2ze8d99su2qq8dty34`;
+
+const DEBUG_SIGNER_2_BSMS = `BSMS 1.0
+tr([32b14325/86'/0'/0']xpub6BfAYP9UKRSNBR1eRzzqoZRXNjxKDswmqTEnFGquHLagyfdxJ3v63eMkpyxu9ZuKbw6VLqRnwwQreqG1EP5n7cu9D4u4z9ffZym57ML3VHr/*)#d69tpnqj
+No path restrictions
+bc1p4kxqrdy8zgz400ukce5vazr0d6qrunzeuacv3pxke3e9dznwcceqv3j4uh`;
+
 const MuSig2WalletButton: React.FC<MuSig2WalletButtonProps> = ({ size }) => {
   const { colors } = useTheme();
   const { direction } = useLocale();
   const { addWallet, saveToDisk } = useStorage();
   const [visible, setVisible] = useState(false);
-  const [signer1PublicKey, setSigner1PublicKey] = useState('');
-  const [signer2PublicKey, setSigner2PublicKey] = useState('');
+  const [signer1PublicKey, setSigner1PublicKey] = useState(__DEV__ ? DEBUG_SIGNER_1_BSMS : '');
+  const [signer2PublicKey, setSigner2PublicKey] = useState(__DEV__ ? DEBUG_SIGNER_2_BSMS : '');
   const [receivingAddress, setReceivingAddress] = useState('');
   const [rootFingerprint, setRootFingerprint] = useState('');
   const [descriptor, setDescriptor] = useState('');
