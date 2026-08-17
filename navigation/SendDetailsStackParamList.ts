@@ -131,6 +131,7 @@ export type SendDetailsStackParamList = {
     psbtBase64: string;
     walletID: string;
     launchedBy?: string;
+    onBarScanned?: string;
   };
   Success: {
     fee?: number;
