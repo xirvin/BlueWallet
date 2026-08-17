@@ -1,9 +1,15 @@
+import BIP32Factory from 'bip32';
+
+import ecc from '../noble_ecc';
+import { uint8ArrayToHex } from '../uint8array-extras';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import {
   MuSig2ParticipantMetadata,
   parseMuSig2ParticipantKeyExpression,
 } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { normalizeMuSig2SignerInput } from './bsms';
+
+const bip32 = BIP32Factory(ecc);
 
 export const MUSIG2_MIN_SIGNERS = 2;
 export const MUSIG2_MAX_SIGNERS = 7;
@@ -64,7 +70,11 @@ export function taprootWalletToMuSig2KeyExpression(wallet: HDTaprootWallet): str
     throw new Error(`Taproot signer wallet must use ${MUSIG2_SIGNER_DERIVATION}`);
   }
 
-  const fingerprint = wallet.getMasterFingerprintHex().toLowerCase();
+  // A freshly generated HDTaprootWallet has not imported an external hardware
+  // fingerprint, so derive the BIP32 master fingerprint directly from its
+  // BIP39 seed (including any configured BIP39 passphrase).
+  const root = bip32.fromSeed(wallet._getSeed());
+  const fingerprint = uint8ArrayToHex(root.fingerprint).toLowerCase();
   const origin = derivationPath.slice(2);
   return `[${fingerprint}/${origin}]${wallet.getXpub()}`;
 }
