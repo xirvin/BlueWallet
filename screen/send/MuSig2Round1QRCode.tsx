@@ -262,7 +262,7 @@ const MuSig2Round1QRCode: React.FC = () => {
       round1Psbt,
       coordinatorState,
       coordinatorPsbtBase64,
-      finalization,
+      coordinatorState === 'FINALIZED' ? finalization : undefined,
       lastError,
     ).catch(error => {
       if (__DEV__) console.log('[MuSig2] coordinator persistence failed:', error);
@@ -409,7 +409,9 @@ const MuSig2Round1QRCode: React.FC = () => {
       setFinalization(undefined);
       setReturnedPsbtDebug(undefined);
       setLastError(undefined);
-      setCoordinatorState(currentState => transitionMuSig2State(currentState, 'COLLECTING_NONCES'));
+      setCoordinatorState(currentState =>
+        currentState === 'FINALIZED' ? 'COLLECTING_NONCES' : transitionMuSig2State(currentState, 'COLLECTING_NONCES'),
+      );
       presentAlert({
         title: 'Fresh MuSig2 session started',
         message:
@@ -634,6 +636,13 @@ const MuSig2Round1QRCode: React.FC = () => {
               </SaveFileButton>
             </>
           )}
+          <BlueSpacing20 />
+          <SquareButton
+            testID="MuSig2RestartFinalizedSession"
+            title="Start another dry-run session"
+            onPress={restartSigningSession}
+            style={[styles.exportButton, stylesHook.exportButton]}
+          />
         </View>
       )}
 
