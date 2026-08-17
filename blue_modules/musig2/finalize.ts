@@ -1,10 +1,16 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import { Psbt } from 'bitcoinjs-lib';
 
+import ecc from '../noble_ecc';
 import { bytesEqual, concatBytes } from './key-aggregation';
 import { getMuSig2PartialSignatureProgress, getMuSig2PartialSignatures } from './round2';
 import { createMuSig2KeyPathSigningContext, MuSig2KeyPathSigningContext } from './signing-context';
 import { partialSigAgg, partialSigVerify, verifyFinalSignature } from './session';
+
+// bitcoinjs-lib requires an explicit secp256k1 backend for Taproot PSBT
+// finalization. Use BlueWallet's existing noble adapter so this module is safe
+// when invoked directly, including after a cold app start or in unit tests.
+bitcoin.initEccLib(ecc);
 
 export { createMuSig2KeyPathSigningContext } from './signing-context';
 export type { MuSig2KeyPathSigningContext } from './signing-context';
