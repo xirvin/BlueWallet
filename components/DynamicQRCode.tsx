@@ -1,3 +1,4 @@
+import { encodeQR } from 'qr';
 import React, { Component } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -23,7 +24,10 @@ interface DynamicQRCodeState {
   intervalHandler: ReturnType<typeof setInterval> | number | null;
   displayQRCode: boolean;
   hideControls?: boolean;
+  renderError?: string;
 }
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeState> {
   constructor(props: DynamicQRCodeProps) {
@@ -55,6 +59,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
           total: this.fragments.length,
           hideControls,
           displayQRCode: true,
+          renderError: undefined,
         },
         () => {
           this.startAutoMove();
@@ -62,7 +67,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
       );
     } catch (e) {
       console.log(e);
-      this.setState({ displayQRCode: false, hideControls });
+      this.setState({ displayQRCode: false, hideControls, renderError: errorMessage(e) });
     }
   }
 
@@ -79,20 +84,48 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
     }
   };
 
+  buildRenderableBBQRFragments = () => {
+    const { value, capacity = 175, walletID } = this.props;
+    const capacityCandidates = Array.from(
+      new Set([capacity, 150, 125, 100, 80, 64, 48, 32].filter(candidate => candidate > 0 && candidate <= capacity)),
+    );
+    let lastError: unknown;
+
+    for (const candidate of capacityCandidates) {
+      try {
+        const fragments = encodeUR(value, candidate, walletID ?? null, 'BBQR');
+        for (const fragment of fragments) {
+          encodeQR(fragment.toUpperCase(), 'raw', {
+            ecc: 'low',
+            border: 1,
+            encoding: 'alphanumeric',
+          });
+        }
+        console.log('BBQr render validation passed:', { capacity: candidate, fragments: fragments.length });
+        return fragments;
+      } catch (error) {
+        lastError = error;
+        console.log('BBQr render validation retry:', { capacity: candidate, error: errorMessage(error) });
+      }
+    }
+
+    throw lastError ?? new Error('Unable to create a renderable BBQr sequence');
+  };
+
   forceUseBBQR = () => {
-    const { value, capacity = 175, hideControls = true, walletID } = this.props;
-    console.log({ value, capacity, walletID });
+    const { hideControls = true } = this.props;
 
     try {
-      this.fragments = encodeUR(value, capacity, walletID ?? null, 'BBQR');
+      this.fragments = this.buildRenderableBBQRFragments();
       this.setState({
         index: 0,
         total: this.fragments.length,
         displayQRCode: true,
+        renderError: undefined,
       });
     } catch (e) {
-      console.log(e);
-      this.setState({ displayQRCode: false, hideControls });
+      console.log('Could not create renderable BBQr:', e);
+      this.setState({ displayQRCode: false, hideControls, renderError: errorMessage(e) });
     }
   };
 
@@ -106,10 +139,11 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
         index: 0,
         total: this.fragments.length,
         displayQRCode: true,
+        renderError: undefined,
       });
     } catch (e) {
       console.log(e);
-      this.setState({ displayQRCode: false, hideControls });
+      this.setState({ displayQRCode: false, hideControls, renderError: errorMessage(e) });
     }
   };
 
@@ -141,8 +175,9 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
   };
 
   onError = (error?: unknown) => {
+    const message = errorMessage(error);
     console.log('Could not render dynamic QR code:', error);
-    this.setState({ displayQRCode: false });
+    this.setState({ displayQRCode: false, renderError: message });
   };
 
   render() {
@@ -183,6 +218,15 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
           )}
         </TouchableOpacity>
 
+        {__DEV__ && this.state.renderError && (
+          <View style={animatedQRCodeStyle.errorBox}>
+            <Text style={animatedQRCodeStyle.errorTitle}>Dynamic QR render error</Text>
+            <Text selectable style={animatedQRCodeStyle.errorText}>
+              {this.state.renderError}
+            </Text>
+          </View>
+        )}
+
         {!this.state.hideControls && (
           <View style={animatedQRCodeStyle.container}>
             <BlueSpacing20 />
@@ -218,7 +262,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
 
             <View style={animatedQRCodeStyle.controller2}>
               <TouchableOpacity accessibilityRole="button" style={animatedQRCodeStyle.buttonUseFormat} onPress={this.forceUseBBQR}>
-                <Text style={animatedQRCodeStyle.text}>Force use BBQR</Text>
+                <Text style={animatedQRCodeStyle.text}>Force use BBQr</Text>
               </TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" style={animatedQRCodeStyle.buttonUseFormat} onPress={this.forceUseURv2}>
                 <Text style={animatedQRCodeStyle.text}>Force use URv2</Text>
@@ -240,6 +284,25 @@ const animatedQRCodeStyle = StyleSheet.create({
   qrcodeContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  errorBox: {
+    width: '92%',
+    borderWidth: 1,
+    borderColor: '#d14343',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    backgroundColor: '#fff4f4',
+  },
+  errorTitle: {
+    color: '#a40000',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  errorText: {
+    color: '#680000',
+    fontSize: 12,
   },
   controller: {
     width: '90%',
