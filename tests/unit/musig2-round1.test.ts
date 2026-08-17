@@ -1,7 +1,9 @@
 import assert from 'assert';
 import * as secp from '@noble/secp256k1';
+import * as bitcoin from 'bitcoinjs-lib';
 import { Psbt } from 'bitcoinjs-lib';
 
+import ecc from '../../blue_modules/noble_ecc';
 import { concatBytes, getPlainPublicKey, keyAgg } from '../../blue_modules/musig2/key-aggregation';
 import {
   addMuSig2ParticipantsToInput,
@@ -25,6 +27,31 @@ function makeBasePsbt(outputValue = 0n): Psbt {
   psbt.addOutput({ script: Uint8Array.of(0x6a), value: outputValue });
   addMuSig2ParticipantsToInput(psbt, 0, AGGREGATE_KEY, PARTICIPANT_KEYS);
   return psbt;
+}
+
+function makeTaprootKeyPathPsbt(): { psbt: Psbt; signingAggregateKey: Uint8Array } {
+  const internalKey = AGGREGATE_KEY.slice(1);
+  const tweak = bitcoin.crypto.taggedHash('TapTweak', internalKey);
+  const tweaked = ecc.xOnlyPointAddTweak(internalKey, tweak);
+  assert.ok(tweaked);
+
+  const signingAggregateKey = new Uint8Array(33);
+  signingAggregateKey[0] = tweaked.parity === 1 ? 0x03 : 0x02;
+  signingAggregateKey.set(tweaked.xOnlyPubkey, 1);
+
+  const payment = bitcoin.payments.p2tr({ internalPubkey: internalKey });
+  assert.ok(payment.output);
+
+  const psbt = new Psbt();
+  psbt.addInput({
+    hash: '11'.repeat(32),
+    index: 0,
+    witnessUtxo: { script: payment.output, value: 100_000n },
+    tapInternalKey: internalKey,
+  });
+  psbt.addOutput({ script: Uint8Array.of(0x6a), value: 0n });
+  addMuSig2ParticipantsToInput(psbt, 0, AGGREGATE_KEY, PARTICIPANT_KEYS);
+  return { psbt, signingAggregateKey };
 }
 
 function makePublicNonce(signerIndex: 0 | 1 | 2, fill: number): Uint8Array {
@@ -59,6 +86,28 @@ describe('MuSig2 BIP373 Round 1 coordinator merge', () => {
     assert.strictEqual(secondMerge.expected, 2);
     assert.strictEqual(secondMerge.complete, true);
     assert.strictEqual(getMuSig2PublicNonces(secondMerge.psbt).length, 2);
+  });
+
+  it('accepts a key-path nonce keyed by the Taproot-tweaked aggregate signing key', () => {
+    const { psbt: base, signingAggregateKey } = makeTaprootKeyPathPsbt();
+    assert.deepStrictEqual(getMuSig2NonceProgress(base), { collected: 0, expected: 2, complete: false });
+
+    const returned = base.clone();
+    addMuSig2PublicNonceToInput(returned, 0, PARTICIPANT_KEYS[0], signingAggregateKey, makePublicNonce(0, 8));
+    const result = mergeMuSig2Round1Psbt(base, returned);
+
+    assert.strictEqual(result.added, 1);
+    assert.strictEqual(result.collected, 1);
+    assert.strictEqual(result.expected, 2);
+    assert.strictEqual(result.complete, false);
+  });
+
+  it('rejects a key-path nonce for the untweaked aggregate key', () => {
+    const { psbt: base } = makeTaprootKeyPathPsbt();
+    const returned = base.clone();
+    addMuSig2PublicNonceToInput(returned, 0, PARTICIPANT_KEYS[0], AGGREGATE_KEY, makePublicNonce(0, 9));
+
+    assert.throws(() => mergeMuSig2Round1Psbt(base, returned), /not from an expected participant or signing key/);
   });
 
   it('is idempotent when the same returned signer PSBT is imported twice', () => {
