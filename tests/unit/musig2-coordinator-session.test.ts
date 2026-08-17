@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import assert from 'assert';
 import { Psbt } from 'bitcoinjs-lib';
 
