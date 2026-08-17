@@ -4,7 +4,6 @@ import { useLocale } from '@react-navigation/native';
 
 import loc from '../loc';
 import { Theme, useTheme } from './themes';
-import MuSig2WalletButton from './MuSig2WalletButton';
 
 interface ButtonDetails {
   image: ImageSourcePropType;
@@ -35,6 +34,12 @@ const buttonDetails: Record<string, ButtonDetails> = {
     image: require('../img/addWallet/vault.png'),
     title: loc.multisig.multisig_vault,
     explain: loc.multisig.multisig_vault_explain,
+    borderColorActive: 'foregroundColor',
+  },
+  MuSig2Vault: {
+    image: require('../img/addWallet/vault.png'),
+    title: 'MuSig2 Vault',
+    explain: 'N-of-N Taproot vault using MuSig2 and BIP390',
     borderColorActive: 'foregroundColor',
   },
   Lightning: {
@@ -79,25 +84,22 @@ const WalletButton: React.FC<WalletButtonProps> = ({ buttonType, testID, onPress
   });
 
   return (
-    <>
-      <Pressable
-        accessibilityRole="button"
-        testID={testID}
-        onPress={onPress}
-        style={({ pressed }) => [pressed && styles.pressed, styles.touchable]}
-      >
-        <View style={[styles.container, stylesHook.buttonContainer]}>
-          <View style={styles.content}>
-            <Image style={styles.image} source={details.image} />
-            <View style={styles.textContainer}>
-              <Text style={stylesHook.textTitle}>{details.title}</Text>
-              <Text style={stylesHook.textExplain}>{details.explain}</Text>
-            </View>
+    <Pressable
+      accessibilityRole="button"
+      testID={testID}
+      onPress={onPress}
+      style={({ pressed }) => [pressed && styles.pressed, styles.touchable]}
+    >
+      <View style={[styles.container, stylesHook.buttonContainer]}>
+        <View style={styles.content}>
+          <Image style={styles.image} source={details.image} />
+          <View style={styles.textContainer}>
+            <Text style={stylesHook.textTitle}>{details.title}</Text>
+            <Text style={stylesHook.textExplain}>{details.explain}</Text>
           </View>
         </View>
-      </Pressable>
-      {buttonType === 'Vault' ? <MuSig2WalletButton size={size} /> : null}
-    </>
+      </View>
+    </Pressable>
   );
 };
 
