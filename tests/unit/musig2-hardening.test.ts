@@ -194,14 +194,13 @@ describe('MuSig2 signing-session hardening', () => {
     assert.throws(() => mergeMuSig2Round2Psbt(mutated, response), /failed cryptographic verification/);
   });
 
-  it('rejects Taproot tweak mutation', () => {
+  it('rejects Taproot tweak mutation before exposing a signer-facing Round 2 PSBT', () => {
     const fixture = prepareSession(7);
     const mutated = fixture.round2Psbt.clone();
     mutated.data.inputs[0].tapMerkleRoot = new Uint8Array(32).fill(7);
-    const response = addSignerPartial(getMuSig2Round2SignerPsbt(mutated), fixture, 0);
 
     assert.throws(
-      () => mergeMuSig2Round2Psbt(mutated, response),
+      () => getMuSig2Round2SignerPsbt(mutated),
       /Taproot output key does not match witness UTXO|signing key does not match the Taproot witness UTXO|wrong signing key/,
     );
   });
