@@ -21,6 +21,7 @@ import {
   clearMuSig2CoordinatorSession,
   getMuSig2CoordinatorSessionId,
   isMuSig2TerminalState,
+  listMuSig2CoordinatorSessions,
   loadMuSig2CoordinatorSession,
   saveMuSig2CoordinatorSession,
   transitionMuSig2State,
@@ -54,20 +55,50 @@ describe('MuSig2 coordinator session persistence and states', () => {
     }
   });
 
-  it('persists and restores only the coordinator record for the same wallet and unsigned transaction', async () => {
+  it('persists, indexes, restores, and clears a resumable session', async () => {
     const psbt = makePsbt();
     const walletID = 'test-musig2-wallet';
     const saved = await saveMuSig2CoordinatorSession(walletID, psbt, 'COLLECTING_NONCES', psbt.toBase64());
     const loaded = await loadMuSig2CoordinatorSession(walletID, psbt);
+    const indexed = await listMuSig2CoordinatorSessions(walletID);
 
     assert.ok(loaded);
     assert.strictEqual(loaded!.sessionId, saved.sessionId);
     assert.strictEqual(loaded!.state, 'COLLECTING_NONCES');
+    assert.strictEqual(loaded!.round1PsbtBase64, psbt.toBase64());
     assert.strictEqual(loaded!.coordinatorPsbtBase64, psbt.toBase64());
     assert.strictEqual(loaded!.finalization, undefined);
 
+    assert.strictEqual(indexed.length, 1);
+    assert.strictEqual(indexed[0].sessionId, saved.sessionId);
+    assert.strictEqual(indexed[0].round1PsbtBase64, psbt.toBase64());
+    assert.strictEqual(indexed[0].state, 'COLLECTING_NONCES');
+
     await clearMuSig2CoordinatorSession(walletID, psbt);
     assert.strictEqual(await loadMuSig2CoordinatorSession(walletID, psbt), undefined);
+    assert.deepStrictEqual(await listMuSig2CoordinatorSessions(walletID), []);
+  });
+
+  it('keeps terminal sessions out of the default resumable activity list', async () => {
+    const psbt = makePsbt();
+    const walletID = 'terminal-wallet';
+    await saveMuSig2CoordinatorSession(walletID, psbt, 'CANCELLED', psbt.toBase64(), undefined, 'cancelled');
+
+    assert.deepStrictEqual(await listMuSig2CoordinatorSessions(walletID), []);
+    const all = await listMuSig2CoordinatorSessions(walletID, false);
+    assert.strictEqual(all.length, 1);
+    assert.strictEqual(all[0].state, 'CANCELLED');
+  });
+
+  it('upserts one activity row as a session progresses', async () => {
+    const psbt = makePsbt();
+    const walletID = 'progress-wallet';
+    await saveMuSig2CoordinatorSession(walletID, psbt, 'COLLECTING_NONCES', psbt.toBase64());
+    await saveMuSig2CoordinatorSession(walletID, psbt, 'NONCES_COMPLETE', psbt.toBase64());
+
+    const sessions = await listMuSig2CoordinatorSessions(walletID);
+    assert.strictEqual(sessions.length, 1);
+    assert.strictEqual(sessions[0].state, 'NONCES_COMPLETE');
   });
 
   it('rejects finalized persistence records that are not written atomically', async () => {
