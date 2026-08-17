@@ -202,7 +202,7 @@ describe('MuSig2 signing-session hardening', () => {
 
     assert.throws(
       () => mergeMuSig2Round2Psbt(mutated, response),
-      /signing key does not match the Taproot witness UTXO|wrong signing key/,
+      /Taproot output key does not match witness UTXO|signing key does not match the Taproot witness UTXO|wrong signing key/,
     );
   });
 });
