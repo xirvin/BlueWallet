@@ -14,6 +14,8 @@ import { CreateTransactionResult, CreateTransactionTarget, CreateTransactionUtxo
 
 const bip32 = BIP32Factory(ecc);
 const BIP328_CHAIN_CODE = hexToUint8Array('868087ca02a6f974c4598924c36b57762d32cb45717167e300622c7167e38965');
+const MIN_MUSIG2_SIGNERS = 2;
+const MAX_MUSIG2_SIGNERS = 7;
 
 export type MuSig2ParticipantMetadata = {
   publicKeyHex: string;
@@ -34,6 +36,12 @@ export type MuSig2CoordinatorExport = {
   descriptor?: string;
   participants: MuSig2ParticipantMetadata[];
 };
+
+function assertParticipantCount(count: number): void {
+  if (!Number.isInteger(count) || count < MIN_MUSIG2_SIGNERS || count > MAX_MUSIG2_SIGNERS) {
+    throw new Error(`MuSig2 coordinator wallet requires between ${MIN_MUSIG2_SIGNERS} and ${MAX_MUSIG2_SIGNERS} signers`);
+  }
+}
 
 function normalizeFingerprint(fingerprint: string): string {
   const normalized = fingerprint.trim().toLowerCase();
@@ -199,8 +207,10 @@ export function parseMuSig2ParticipantKeyExpression(input: string): MuSig2Partic
  */
 export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   static readonly type = 'HDtaprootMuSig2';
-  static readonly typeReadable = 'HD Taproot MuSig2 (BIP327/328)';
+  static readonly typeReadable = 'MuSig2 Vault';
   static readonly derivationPath = 'm';
+  static readonly minSigners = MIN_MUSIG2_SIGNERS;
+  static readonly maxSigners = MAX_MUSIG2_SIGNERS;
 
   // @ts-ignore: override
   public readonly type = HDTaprootMuSig2Wallet.type;
@@ -234,7 +244,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
         : new Uint8Array(publicKey);
     parsePlainPublicKey(bytes);
 
-    if (this._participants.length === 2) {
+    if (this._participants.length >= MIN_MUSIG2_SIGNERS) {
       const participantKeys = this._participants.map(participant => hexToUint8Array(participant.publicKeyHex));
       const expected = getPlainPublicKey(keyAgg(participantKeys));
       if (!bytesEqual(bytes, expected)) {
@@ -260,21 +270,15 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     return uint8ArrayToHex(bitcoin.crypto.hash160(this.getAggregatePublicKey()).slice(0, 4)).toUpperCase();
   }
 
-  /**
-   * WalletDetails expects HD wallets to expose a master fingerprint through
-   * this inherited method. A MuSig2 coordinator has no mnemonic/master private
-   * key, so its meaningful fingerprint is the BIP32 fingerprint of the BIP328
-   * synthetic aggregate root instead of a fingerprint derived from `secret`.
-   */
   getMasterFingerprintHex(): string {
     return this.getMuSig2RootFingerprint();
   }
 
   setParticipants(participants: MuSig2ParticipantMetadata[]): this {
-    if (participants.length !== 2) throw new Error('MuSig2 coordinator wallet currently requires exactly two signers');
+    assertParticipantCount(participants.length);
 
     const normalized = participants.map(normalizeParticipant).sort(compareParticipantKeys);
-    if (normalized[0].publicKeyHex === normalized[1].publicKeyHex) {
+    if (new Set(normalized.map(participant => participant.publicKeyHex)).size !== normalized.length) {
       throw new Error('MuSig2 signer public keys must be distinct');
     }
 
@@ -293,11 +297,11 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   }
 
   setParticipantKeyExpressions(expressions: string[]): this {
-    if (expressions.length !== 2) throw new Error('MuSig2 coordinator wallet currently requires exactly two signers');
+    assertParticipantCount(expressions.length);
     const participants = expressions.map(parseMuSig2ParticipantKeyExpression);
     const xpubCount = participants.filter(participant => Boolean(participant.xpub)).length;
     if (xpubCount !== 0 && xpubCount !== participants.length) {
-      throw new Error('Use two hardware xpub key expressions or two bare public keys; mixed MuSig2 signer modes are not supported');
+      throw new Error('Use hardware xpub key expressions for every signer or bare public keys for every signer; mixed MuSig2 signer modes are not supported');
     }
     return this.setParticipants(participants);
   }
@@ -306,8 +310,16 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     return this._participants.map(participant => ({ ...participant }));
   }
 
+  getSignerCount(): number {
+    return this._participants.length;
+  }
+
   hasParticipantPublicKeys(): boolean {
-    return this._participants.length === 2 && Boolean(this._aggregatePublicKeyHex);
+    return (
+      this._participants.length >= MIN_MUSIG2_SIGNERS &&
+      this._participants.length <= MAX_MUSIG2_SIGNERS &&
+      Boolean(this._aggregatePublicKeyHex)
+    );
   }
 
   hasCompleteParticipantMetadata(): boolean {
@@ -323,7 +335,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   getBIP390Descriptor(includeChecksum = true): string {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
-      throw new Error('BIP390 descriptor requires two signer [fingerprint/path]xpub key expressions');
+      throw new Error('BIP390 descriptor requires a [fingerprint/path]xpub key expression for every signer');
     }
 
     const keys = this._participants.map(descriptorOrigin).join(',');
@@ -378,7 +390,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   private getParticipantTapBip32Derivations() {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
-      throw new Error('MuSig2 hardware signing requires both signer [fingerprint/path]xpub key expressions');
+      throw new Error('MuSig2 hardware signing requires a [fingerprint/path]xpub key expression for every signer');
     }
 
     return this._participants.map(participant => ({
@@ -391,7 +403,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   _addPsbtInput(psbt: Psbt, input: CoinSelectReturnInput, sequence: number, _masterFingerprintBuffer: Uint8Array): Psbt {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
-      throw new Error('MuSig2 Round 1 requires both signer [fingerprint/path]xpub key expressions');
+      throw new Error('MuSig2 Round 1 requires a [fingerprint/path]xpub key expression for every signer');
     }
     if (!input.address) throw new Error('Internal error: no address on MuSig2 UTXO');
 
@@ -436,7 +448,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     _masterFingerprint = 0,
   ): CreateTransactionResult {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
-      throw new Error('MuSig2 spending requires two hardware signer [fingerprint/path]xpub key expressions');
+      throw new Error('MuSig2 spending requires a [fingerprint/path]xpub key expression for every signer');
     }
 
     // The phone is coordinator-only. Always force unsigned PSBT construction.
@@ -446,7 +458,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       if (!output.address) return;
       const path = this._getDerivationPathByAddress(String(output.address));
       const internalKey = this._getPubkeyByAddress(String(output.address));
-      if (!path || !internalKey) return; // external recipient, not our change output
+      if (!path || !internalKey) return;
 
       result.psbt.data.outputs[outputIndex].tapInternalKey = new Uint8Array(internalKey);
       result.psbt.data.outputs[outputIndex].tapBip32Derivation = [
