@@ -35,7 +35,9 @@ const MuSig2Advanced: React.FC = () => {
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'android') {
-      navigation.setOptions({ headerRight: () => <HeaderRightButton title="Done" onPress={done} testID="MuSig2SettingsDone" /> });
+      navigation.setOptions({
+        headerRight: () => <HeaderRightButton disabled={false} title="Done" onPress={done} testID="MuSig2SettingsDone" />,
+      });
     }
   }, [done, navigation]);
 
@@ -67,7 +69,7 @@ const MuSig2Advanced: React.FC = () => {
       <ListItem title="Signer derivation" subtitle={MUSIG2_SIGNER_DERIVATION} bottomDivider={false} />
       <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>Each Vault Key uses a standard BIP86 Taproot account xpub. The vault descriptor uses BIP390 musig() with BIP328 aggregate derivation.</Text>
 
-      {Platform.OS === 'android' && <HeaderRightButton title="Done" onPress={done} testID="MuSig2SettingsDone" />}
+      {Platform.OS === 'android' && <HeaderRightButton disabled={false} title="Done" onPress={done} testID="MuSig2SettingsDone" />}
     </SafeArea>
   );
 };
