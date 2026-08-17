@@ -3,6 +3,8 @@ import { sha256 } from '@noble/hashes/sha2';
 import { Psbt } from 'bitcoinjs-lib';
 
 import { bytesEqual, concatBytes } from './key-aggregation';
+import { getMuSig2NonceProgress } from './psbt';
+import { getMuSig2PartialSignatureProgress, verifyMuSig2PartialSignatures } from './round2';
 
 export const MUSIG2_COORDINATOR_SESSION_VERSION = 1;
 const STORAGE_PREFIX = 'bluewallet:musig2:coordinator:v1:';
@@ -97,6 +99,21 @@ export function assertMuSig2StateTransition(from: MuSig2CoordinatorState, to: Mu
 export function transitionMuSig2State(from: MuSig2CoordinatorState, to: MuSig2CoordinatorState): MuSig2CoordinatorState {
   assertMuSig2StateTransition(from, to);
   return to;
+}
+
+export function deriveMuSig2ActiveState(psbt: Psbt): MuSig2CoordinatorState {
+  const nonceProgress = getMuSig2NonceProgress(psbt);
+  if (!nonceProgress.complete) return 'COLLECTING_NONCES';
+
+  const partialProgress = getMuSig2PartialSignatureProgress(psbt);
+  if (partialProgress.collected > 0) {
+    // Restored coordinator data is not trusted merely because it parses. Every
+    // persisted 0x1c is re-verified before its state can be resumed.
+    verifyMuSig2PartialSignatures(psbt);
+  }
+  if (partialProgress.complete) return 'SIGNATURES_COMPLETE';
+  if (partialProgress.collected > 0) return 'COLLECTING_PARTIAL_SIGNATURES';
+  return 'NONCES_COMPLETE';
 }
 
 function parseStoredRecord(raw: string, walletID: string, round1Psbt: Psbt): MuSig2CoordinatorSessionRecord {
