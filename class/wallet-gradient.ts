@@ -5,6 +5,7 @@ import { HDLegacyP2PKHWallet } from './wallets/hd-legacy-p2pkh-wallet';
 import { HDSegwitBech32Wallet } from './wallets/hd-segwit-bech32-wallet';
 import { HDSegwitElectrumSeedP2WPKHWallet } from './wallets/hd-segwit-electrum-seed-p2wpkh-wallet';
 import { HDSegwitP2SHWallet } from './wallets/hd-segwit-p2sh-wallet';
+import { HDTaprootMuSig2Wallet } from './wallets/hd-taproot-musig2-wallet';
 import { LegacyWallet } from './wallets/legacy-wallet';
 import { LightningCustodianWallet } from './wallets/lightning-custodian-wallet'; // Missing import
 import { MultisigHDWallet } from './wallets/multisig-hd-wallet';
@@ -64,6 +65,7 @@ export default class WalletGradient {
       case SegwitBech32Wallet.type:
         gradient = WalletGradient.segwitBech32Wallet;
         break;
+      case HDTaprootMuSig2Wallet.type:
       case MultisigHDWallet.type:
         gradient = WalletGradient.multisigHdWallet;
         break;
