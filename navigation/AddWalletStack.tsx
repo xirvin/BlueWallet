@@ -27,7 +27,7 @@ export type AddWalletStackParamList = {
     providedEntropyBytes?: number;
     words?: number;
     selectedIndex?: number;
-    selectedWalletType?: Chain | 'VAULT' | 'ARK';
+    selectedWalletType?: Chain | 'VAULT' | 'MUSIG2_VAULT' | 'ARK';
     headerRight?: HeaderRightRenderer;
     statusBarStyle?: NativeStackNavigationOptions['statusBarStyle'];
   };
@@ -50,19 +50,10 @@ export type AddWalletStackParamList = {
     importText: string;
     password: string | undefined;
   };
-  PleaseBackup: {
-    walletID: string;
-  };
-  PleaseBackupLNDHub: {
-    walletID: string;
-  };
-  ProvideEntropy: {
-    words: number;
-    entropy?: string;
-  };
-  WalletsAddMultisig: {
-    walletLabel: string;
-  };
+  PleaseBackup: { walletID: string };
+  PleaseBackupLNDHub: { walletID: string };
+  ProvideEntropy: { words: number; entropy?: string };
+  WalletsAddMultisig: { walletLabel: string };
   MultisigAdvanced: {
     m: number;
     n: number;
@@ -81,20 +72,32 @@ export type AddWalletStackParamList = {
     sheetAskPassphrase?: boolean;
     headerRight?: HeaderRightRenderer;
   };
-  WalletsAddMultisigVaultKeySheet: {
-    keyIndex: number;
-    seed: string;
-  };
-  WalletsAddMultisigProvideMnemonicsSheet: {
-    importText: string;
-    askPassphrase: boolean;
-  };
-  WalletsAddMultisigCosignerXpubSheet: {
-    cosignerXpub: string;
-    cosignerXpubURv2: string;
-    cosignerXpubFilename: string;
-  };
+  WalletsAddMultisigVaultKeySheet: { keyIndex: number; seed: string };
+  WalletsAddMultisigProvideMnemonicsSheet: { importText: string; askPassphrase: boolean };
+  WalletsAddMultisigCosignerXpubSheet: { cosignerXpub: string; cosignerXpubURv2: string; cosignerXpubFilename: string };
   WalletsAddMultisigHelp: undefined;
+  WalletsAddMuSig2: { walletLabel: string };
+  MuSig2Advanced: {
+    signerCount: number;
+    onSave: (signerCount: number) => void;
+    headerRight?: HeaderRightRenderer;
+  };
+  WalletsAddMuSig2Step2: {
+    signerCount: number;
+    walletLabel: string;
+  };
+  MuSig2VaultKey: {
+    keyIndex: number;
+    walletLabel: string;
+    initialValue?: string;
+    onSave: (keyExpression: string) => void;
+    onBarScanned?: { data?: string } | string;
+  };
+  MuSig2DescriptorReview: {
+    signerCount: number;
+    walletLabel: string;
+    signerExpressions: string[];
+  };
   ScanQRCode: ScanQRCodeParamList;
 };
 
@@ -115,6 +118,11 @@ const WalletsAddMultisigHelp = lazy(() => import('../screen/wallets/addMultisigH
 const WalletsAddMultisigVaultKeySheet = lazy(() => import('../screen/wallets/WalletsAddMultisigVaultKeySheet'));
 const WalletsAddMultisigProvideMnemonicsSheet = lazy(() => import('../screen/wallets/WalletsAddMultisigProvideMnemonicsSheet'));
 const WalletsAddMultisigCosignerXpubSheet = lazy(() => import('../screen/wallets/WalletsAddMultisigCosignerXpubSheet'));
+const WalletsAddMuSig2 = lazy(() => import('../screen/wallets/WalletsAddMuSig2'));
+const MuSig2Advanced = lazy(() => import('../screen/wallets/MuSig2Advanced'));
+const WalletsAddMuSig2Step2 = lazy(() => import('../screen/wallets/WalletsAddMuSig2Step2'));
+const MuSig2VaultKey = lazy(() => import('../screen/wallets/MuSig2VaultKey'));
+const MuSig2DescriptorReview = lazy(() => import('../screen/wallets/MuSig2DescriptorReview'));
 const ScanQRCode = lazy(() => import('../screen/send/ScanQRCode'));
 
 const AddComponent = withLazySuspense(WalletsAdd);
@@ -132,36 +140,21 @@ const WalletsAddMultisigHelpComponent = withLazySuspense(WalletsAddMultisigHelp)
 const WalletsAddMultisigVaultKeySheetComponent = withLazySuspense(WalletsAddMultisigVaultKeySheet);
 const WalletsAddMultisigProvideMnemonicsSheetComponent = withLazySuspense(WalletsAddMultisigProvideMnemonicsSheet);
 const WalletsAddMultisigCosignerXpubSheetComponent = withLazySuspense(WalletsAddMultisigCosignerXpubSheet);
+const WalletsAddMuSig2Component = withLazySuspense(WalletsAddMuSig2);
+const MuSig2AdvancedComponent = withLazySuspense(MuSig2Advanced);
+const WalletsAddMuSig2Step2Component = withLazySuspense(WalletsAddMuSig2Step2);
+const MuSig2VaultKeyComponent = withLazySuspense(MuSig2VaultKey);
+const MuSig2DescriptorReviewComponent = withLazySuspense(MuSig2DescriptorReview);
 const ScanQRCodeComponent = withLazySuspense(ScanQRCode);
 const multisigSheetAllowedDetents = Platform.OS === 'ios' ? 'fitToContents' : [0.9];
 
-const styles = StyleSheet.create({
-  closeButton: {
-    padding: 10,
-  },
-});
+const styles = StyleSheet.create({ closeButton: { padding: 10 } });
 
 const addWalletTypes = [
-  {
-    id: HDSegwitBech32Wallet.type,
-    text: `${loc.multisig.native_segwit_title}`,
-    subtitle: 'p2wpkh/HD',
-  },
-  {
-    id: HDLegacyP2PKHWallet.type,
-    text: `${loc.multisig.legacy_title}`,
-    subtitle: 'p2pkh/HD',
-  },
-  {
-    id: HDTaprootWallet.type,
-    text: 'Taproot',
-    subtitle: 'p2tr/HD',
-  },
-  {
-    id: LightningCustodianWallet.type,
-    text: LightningCustodianWallet.typeReadable,
-    subtitle: LightningCustodianWallet.subtitleReadable,
-  },
+  { id: HDSegwitBech32Wallet.type, text: `${loc.multisig.native_segwit_title}`, subtitle: 'p2wpkh/HD' },
+  { id: HDLegacyP2PKHWallet.type, text: `${loc.multisig.legacy_title}`, subtitle: 'p2pkh/HD' },
+  { id: HDTaprootWallet.type, text: 'Taproot', subtitle: 'p2tr/HD' },
+  { id: LightningCustodianWallet.type, text: LightningCustodianWallet.typeReadable, subtitle: LightningCustodianWallet.subtitleReadable },
 ];
 
 const createAddWalletOptions = (theme: ReturnType<typeof useTheme>) =>
@@ -174,9 +167,7 @@ const createAddWalletOptions = (theme: ReturnType<typeof useTheme>) =>
     const providedEntropyBytes = route.params?.providedEntropyBytes || (entropyHex ? Math.floor(entropyHex.length / 2) : 0);
 
     const entropyButtonText = hasEntropy
-      ? loc.formatString(loc.wallets.add_entropy_bytes, {
-          bytes: providedEntropyBytes,
-        })
+      ? loc.formatString(loc.wallets.add_entropy_bytes, { bytes: providedEntropyBytes })
       : loc.wallets.add_entropy_provide;
 
     const onPressMenuItem = (id: string) => {
@@ -190,9 +181,7 @@ const createAddWalletOptions = (theme: ReturnType<typeof useTheme>) =>
         navigation.setParams({ entropy: undefined, providedEntropyBytes: undefined, words: undefined, selectedWalletType: Chain.ONCHAIN });
       } else {
         const nextIndex = addWalletTypes.findIndex(item => item.id === id);
-        if (nextIndex >= 0) {
-          navigation.setParams({ selectedIndex: nextIndex, selectedWalletType: Chain.ONCHAIN });
-        }
+        if (nextIndex >= 0) navigation.setParams({ selectedIndex: nextIndex, selectedWalletType: Chain.ONCHAIN });
       }
     };
 
@@ -215,25 +204,14 @@ const createAddWalletOptions = (theme: ReturnType<typeof useTheme>) =>
         id: CommonToolTipActions.Entropy.id,
         text: entropyButtonText,
         subactions: [
-          {
-            id: '12_words',
-            text: loc.wallets.add_wallet_seed_length_12,
-            subtitle: loc.wallets.add_wallet_seed_length,
-            menuState: words === 12,
-          },
-          {
-            id: '24_words',
-            text: loc.wallets.add_wallet_seed_length_24,
-            subtitle: loc.wallets.add_wallet_seed_length,
-            menuState: words === 24,
-          },
+          { id: '12_words', text: loc.wallets.add_wallet_seed_length_12, subtitle: loc.wallets.add_wallet_seed_length, menuState: words === 12 },
+          { id: '24_words', text: loc.wallets.add_wallet_seed_length_24, subtitle: loc.wallets.add_wallet_seed_length, menuState: words === 24 },
           { ...CommonToolTipActions.ResetToDefault, hidden: !hasEntropy },
         ],
       });
     }
 
     const headerMenuOptions = createEllipsisHeaderMenuOptions({ actions, onPressMenuItem, title: '' });
-
     return {
       ...options,
       headerRight: headerMenuOptions.headerRight,
@@ -249,13 +227,9 @@ export const createImportWalletOptions = (theme: ReturnType<typeof useTheme>) =>
 
     const onPressMenuItem = (menuItem: string) => {
       Keyboard.dismiss();
-      if (menuItem === CommonToolTipActions.Passphrase.id) {
-        navigation.setParams({ askPassphraseMenuState: !askPassphraseMenuState });
-      } else if (menuItem === CommonToolTipActions.SearchAccount.id) {
-        navigation.setParams({ searchAccountsMenuState: !searchAccountsMenuState });
-      } else if (menuItem === CommonToolTipActions.ClearClipboard.id) {
-        navigation.setParams({ clearClipboardMenuState: !clearClipboardMenuState });
-      }
+      if (menuItem === CommonToolTipActions.Passphrase.id) navigation.setParams({ askPassphraseMenuState: !askPassphraseMenuState });
+      else if (menuItem === CommonToolTipActions.SearchAccount.id) navigation.setParams({ searchAccountsMenuState: !searchAccountsMenuState });
+      else if (menuItem === CommonToolTipActions.ClearClipboard.id) navigation.setParams({ clearClipboardMenuState: !clearClipboardMenuState });
     };
 
     const actions: Action[] = [
@@ -263,7 +237,6 @@ export const createImportWalletOptions = (theme: ReturnType<typeof useTheme>) =>
       { ...CommonToolTipActions.SearchAccount, menuState: searchAccountsMenuState },
       { ...CommonToolTipActions.ClearClipboard, menuState: clearClipboardMenuState },
     ];
-
     const headerMenuOptions = createEllipsisHeaderMenuOptions({ actions, onPressMenuItem });
 
     return {
@@ -293,49 +266,35 @@ const AddWalletStack = () => {
   return (
     <Stack.Navigator initialRouteName="AddWallet" UNSTABLE_router={navigationGuardRouter}>
       <Stack.Screen name="AddWallet" component={AddComponent} options={createAddWalletOptions(theme)} />
-      <Stack.Screen
-        name="ImportCustomDerivationPath"
-        component={ImportCustomDerivationPathComponent}
-        options={navigationStyle({ statusBarStyle: 'light', title: loc.wallets.import_derivation_title })(theme)}
-      />
+      <Stack.Screen name="ImportCustomDerivationPath" component={ImportCustomDerivationPathComponent} options={navigationStyle({ statusBarStyle: 'light', title: loc.wallets.import_derivation_title })(theme)} />
       <Stack.Screen name="ImportWallet" component={ImportWalletComponent} options={createImportWalletOptions(theme)} />
+      <Stack.Screen name="ImportSpeed" component={ImportSpeedComponent} options={navigationStyle({ statusBarStyle: 'light', title: loc.wallets.import_title })(theme)} />
+      <Stack.Screen name="ImportWalletDiscovery" component={ImportWalletDiscoveryComponent} options={navigationStyle({ title: loc.wallets.import_discovery_title })(theme)} />
+      <Stack.Screen name="PleaseBackup" component={PleaseBackupComponent} options={navigationStyle({ gestureEnabled: false, headerBackVisible: false, title: loc.pleasebackup.title })(theme)} />
+      <Stack.Screen name="PleaseBackupLNDHub" component={PleaseBackupLNDHubComponent} options={navigationStyle({ gestureEnabled: false, headerBackVisible: false, title: loc.pleasebackup.title })(theme)} />
+      <Stack.Screen name="ProvideEntropy" component={ProvideEntropyComponent} options={navigationStyle({ title: loc.entropy.title, headerStyle: { backgroundColor: theme.colors.background } })(theme)} />
+
+      <Stack.Screen name="WalletsAddMuSig2" component={WalletsAddMuSig2Component} options={navigationStyle({ title: '' })(theme)} initialParams={{ walletLabel: 'MuSig2 Vault' }} />
       <Stack.Screen
-        name="ImportSpeed"
-        component={ImportSpeedComponent}
-        options={navigationStyle({ statusBarStyle: 'light', title: loc.wallets.import_title })(theme)}
+        name="MuSig2Advanced"
+        component={MuSig2AdvancedComponent}
+        options={navigationStyle(
+          {
+            title: 'Vault settings',
+            presentation: 'formSheet',
+            sheetAllowedDetents: multisigSheetAllowedDetents,
+            sheetGrabberVisible: true,
+            headerShown: true,
+            headerTitle: 'Vault settings',
+          },
+          withRouteParamHeaderOptions({ headerRight: true }),
+        )(theme)}
       />
-      <Stack.Screen
-        name="ImportWalletDiscovery"
-        component={ImportWalletDiscoveryComponent}
-        options={navigationStyle({
-          title: loc.wallets.import_discovery_title,
-        })(theme)}
-      />
-      <Stack.Screen
-        name="PleaseBackup"
-        component={PleaseBackupComponent}
-        options={navigationStyle({
-          gestureEnabled: false,
-          headerBackVisible: false,
-          title: loc.pleasebackup.title,
-        })(theme)}
-      />
-      <Stack.Screen
-        name="PleaseBackupLNDHub"
-        component={PleaseBackupLNDHubComponent}
-        options={navigationStyle({ gestureEnabled: false, headerBackVisible: false, title: loc.pleasebackup.title })(theme)}
-      />
-      <Stack.Screen
-        name="ProvideEntropy"
-        component={ProvideEntropyComponent}
-        options={navigationStyle({ title: loc.entropy.title, headerStyle: { backgroundColor: theme.colors.background } })(theme)}
-      />
-      <Stack.Screen
-        name="WalletsAddMultisig"
-        component={WalletsAddMultisigComponent}
-        options={navigationStyle({ title: '' })(theme)}
-        initialParams={{ walletLabel: loc.multisig.default_label }}
-      />
+      <Stack.Screen name="WalletsAddMuSig2Step2" component={WalletsAddMuSig2Step2Component} options={navigationStyle({ title: 'MuSig2 Vault Keys' })(theme)} />
+      <Stack.Screen name="MuSig2VaultKey" component={MuSig2VaultKeyComponent} options={navigationStyle({ title: 'Vault Key' })(theme)} />
+      <Stack.Screen name="MuSig2DescriptorReview" component={MuSig2DescriptorReviewComponent} options={navigationStyle({ title: 'Review MuSig2 Vault' })(theme)} />
+
+      <Stack.Screen name="WalletsAddMultisig" component={WalletsAddMultisigComponent} options={navigationStyle({ title: '' })(theme)} initialParams={{ walletLabel: loc.multisig.default_label }} />
       <Stack.Screen
         name="MultisigAdvanced"
         component={MultisigAdvancedComponent}
@@ -351,71 +310,31 @@ const AddWalletStack = () => {
           withRouteParamHeaderOptions({ headerRight: true }),
         )(theme)}
       />
-      <Stack.Screen
-        name="WalletsAddMultisigStep2"
-        component={WalletsAddMultisigStep2Component}
-        options={navigationStyle({ title: '', gestureEnabled: false }, withRouteParamHeaderOptions({ headerRight: true }))(theme)}
-      />
+      <Stack.Screen name="WalletsAddMultisigStep2" component={WalletsAddMultisigStep2Component} options={navigationStyle({ title: '', gestureEnabled: false }, withRouteParamHeaderOptions({ headerRight: true }))(theme)} />
       <Stack.Screen
         name="WalletsAddMultisigVaultKeySheet"
         component={WalletsAddMultisigVaultKeySheetComponent}
-        options={navigationStyle({
-          presentation: 'formSheet',
-          sheetAllowedDetents: multisigSheetAllowedDetents,
-          sheetGrabberVisible: true,
-          headerShown: true,
-          headerTitle: '',
-          closeButtonPosition: CloseButtonPosition.Right,
-        })(theme)}
+        options={navigationStyle({ presentation: 'formSheet', sheetAllowedDetents: multisigSheetAllowedDetents, sheetGrabberVisible: true, headerShown: true, headerTitle: '', closeButtonPosition: CloseButtonPosition.Right })(theme)}
       />
       <Stack.Screen
         name="WalletsAddMultisigProvideMnemonicsSheet"
         component={WalletsAddMultisigProvideMnemonicsSheetComponent}
-        options={navigationStyle({
-          presentation: 'formSheet',
-          sheetAllowedDetents: multisigSheetAllowedDetents,
-          sheetGrabberVisible: true,
-          headerShown: true,
-          headerTitle: '',
-          closeButtonPosition: CloseButtonPosition.Right,
-        })(theme)}
+        options={navigationStyle({ presentation: 'formSheet', sheetAllowedDetents: multisigSheetAllowedDetents, sheetGrabberVisible: true, headerShown: true, headerTitle: '', closeButtonPosition: CloseButtonPosition.Right })(theme)}
       />
       <Stack.Screen
         name="WalletsAddMultisigCosignerXpubSheet"
         component={WalletsAddMultisigCosignerXpubSheetComponent}
-        options={navigationStyle({
-          presentation: 'formSheet',
-          sheetAllowedDetents: multisigSheetAllowedDetents,
-          sheetGrabberVisible: true,
-          headerShown: true,
-          headerTitle: '',
-          closeButtonPosition: CloseButtonPosition.Right,
-        })(theme)}
+        options={navigationStyle({ presentation: 'formSheet', sheetAllowedDetents: multisigSheetAllowedDetents, sheetGrabberVisible: true, headerShown: true, headerTitle: '', closeButtonPosition: CloseButtonPosition.Right })(theme)}
       />
       <Stack.Screen
         name="WalletsAddMultisigHelp"
         component={WalletsAddMultisigHelpComponent}
-        options={navigationStyle({
-          title: '',
-          gestureEnabled: false,
-          headerStyle: {
-            backgroundColor: '#0070FF',
-          },
-          headerTintColor: '#FFFFFF',
-          headerBackTitle: undefined,
-          statusBarStyle: 'light',
-          headerShadowVisible: false,
-        })(theme)}
+        options={navigationStyle({ title: '', gestureEnabled: false, headerStyle: { backgroundColor: '#0070FF' }, headerTintColor: '#FFFFFF', headerBackTitle: undefined, statusBarStyle: 'light', headerShadowVisible: false })(theme)}
       />
       <Stack.Screen
         name="ScanQRCode"
         component={ScanQRCodeComponent}
-        options={navigationStyle({
-          headerShown: false,
-          statusBarHidden: true,
-          presentation: 'fullScreenModal',
-          headerShadowVisible: false,
-        })(theme)}
+        options={navigationStyle({ headerShown: false, statusBarHidden: true, presentation: 'fullScreenModal', headerShadowVisible: false })(theme)}
       />
     </Stack.Navigator>
   );
