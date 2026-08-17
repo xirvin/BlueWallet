@@ -11,6 +11,11 @@ import {
   PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS,
   PSBT_IN_MUSIG2_PUB_NONCE,
 } from '../../blue_modules/musig2/psbt';
+import {
+  getMuSig2PartialSignatureProgress,
+  getMuSig2Round2SignerPsbt,
+  mergeMuSig2Round2Psbt,
+} from '../../blue_modules/musig2/round2';
 import presentAlert from '../../components/Alert';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
 import BlueText from '../../components/BlueText';
@@ -108,8 +113,17 @@ const MuSig2Round1QRCode: React.FC = () => {
   const round1Psbt = useMemo(() => bitcoin.Psbt.fromBase64(psbtBase64), [psbtBase64]);
   const coordinatorPsbt = useMemo(() => bitcoin.Psbt.fromBase64(coordinatorPsbtBase64), [coordinatorPsbtBase64]);
   const nonceProgress = useMemo(() => getMuSig2NonceProgress(coordinatorPsbt), [coordinatorPsbt]);
-  const displayedPsbt = nonceProgress.complete ? coordinatorPsbt : round1Psbt;
+  const partialSignatureProgress = useMemo(
+    () => (nonceProgress.complete ? getMuSig2PartialSignatureProgress(coordinatorPsbt) : undefined),
+    [coordinatorPsbt, nonceProgress.complete],
+  );
+  const round2SignerPsbt = useMemo(
+    () => (nonceProgress.complete ? getMuSig2Round2SignerPsbt(coordinatorPsbt) : undefined),
+    [coordinatorPsbt, nonceProgress.complete],
+  );
+  const displayedPsbt = round2SignerPsbt ?? round1Psbt;
   const phase = nonceProgress.complete ? 2 : 1;
+  const signingComplete = partialSignatureProgress?.complete ?? false;
 
   const hasBip373Participants = useMemo(
     () =>
@@ -122,7 +136,6 @@ const MuSig2Round1QRCode: React.FC = () => {
 
   useEffect(() => {
     if (isFocused) {
-      // COLDCARD Q understands BBQr and it is more efficient for large binary PSBTs.
       dynamicQRCode.current?.forceUseBBQR();
       dynamicQRCode.current?.startAutoMove();
     } else {
@@ -130,7 +143,7 @@ const MuSig2Round1QRCode: React.FC = () => {
     }
   }, [isFocused, phase]);
 
-  const handleReturnedRound1Psbt = useCallback(
+  const handleReturnedSignerPsbt = useCallback(
     (data: string) => {
       try {
         const returnedPsbt = parseReturnedPsbt(data);
@@ -141,36 +154,45 @@ const MuSig2Round1QRCode: React.FC = () => {
           console.log('[MuSig2] returned signer PSBT base64:', returnedPsbt.toBase64());
         }
 
-        // The returned PSBT can come from either signer and by either QR/BBQr
-        // or file import. The BIP373 participant key identifies which signer
-        // contributed the nonce; UI transport does not assign signer identity.
-        const result = mergeMuSig2Round1Psbt(coordinatorPsbt, returnedPsbt);
-        setCoordinatorPsbtBase64(result.psbt.toBase64());
+        const currentNonceProgress = getMuSig2NonceProgress(coordinatorPsbt);
+        if (!currentNonceProgress.complete) {
+          const result = mergeMuSig2Round1Psbt(coordinatorPsbt, returnedPsbt);
+          setCoordinatorPsbtBase64(result.psbt.toBase64());
+          if (result.added === 0) {
+            presentAlert({ title: 'MuSig2 Round 1', message: 'This public nonce was already imported.' });
+          }
+          return;
+        }
 
+        const result = mergeMuSig2Round2Psbt(coordinatorPsbt, returnedPsbt);
+        setCoordinatorPsbtBase64(result.psbt.toBase64());
         if (result.added === 0) {
-          presentAlert({ title: 'MuSig2 Round 1', message: 'This public nonce was already imported.' });
+          presentAlert({ title: 'MuSig2 Round 2', message: 'This partial signature was already imported.' });
+        } else if (result.complete) {
+          presentAlert({
+            title: 'MuSig2 Round 2 complete',
+            message: 'All expected BIP373 partial signatures have been collected.',
+          });
         }
       } catch (error: any) {
         if (__DEV__) console.log('[MuSig2] returned signer PSBT rejected:', error);
-        presentAlert({ title: 'MuSig2 Round 1 rejected', message: error?.message ?? String(error) });
+        presentAlert({
+          title: nonceProgress.complete ? 'MuSig2 Round 2 rejected' : 'MuSig2 Round 1 rejected',
+          message: error?.message ?? String(error),
+        });
       }
     },
-    [coordinatorPsbt, round1Psbt],
+    [coordinatorPsbt, nonceProgress.complete, round1Psbt],
   );
 
   useEffect(() => {
     if (!onBarScanned) return;
 
-    // ScanQRCode returns serializable QR or file-import data to this route.
-    // Consume it once, then clear the route param so a coordinator state update
-    // cannot import the same nonce a second time.
     navigation.setParams({ onBarScanned: undefined });
-    handleReturnedRound1Psbt(onBarScanned);
-  }, [handleReturnedRound1Psbt, navigation, onBarScanned]);
+    handleReturnedSignerPsbt(onBarScanned);
+  }, [handleReturnedSignerPsbt, navigation, onBarScanned]);
 
-  const importReturnedRound1Psbt = useCallback(() => {
-    // Either signer can return its nonce-bearing Round 1 PSBT. ScanQRCode can
-    // scan QR/BBQr or import a PSBT file and returns either payload via popTo.
+  const importReturnedSignerPsbt = useCallback(() => {
     navigation.navigate('ScanQRCode', {
       launchedBy: 'MuSig2Round1QRCode',
       showFileImportButton: true,
@@ -186,6 +208,12 @@ const MuSig2Round1QRCode: React.FC = () => {
     setIsSaving(false);
     dynamicQRCode.current?.startAutoMove();
   }, []);
+
+  const coordinatorState = !nonceProgress.complete
+    ? 'COLLECTING_NONCES'
+    : signingComplete
+      ? 'SIGNATURES_COMPLETE'
+      : 'COLLECTING_PARTIAL_SIGNATURES';
 
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
@@ -205,9 +233,13 @@ const MuSig2Round1QRCode: React.FC = () => {
       {nonceProgress.complete ? (
         <TipBox
           number="2"
-          title="MuSig2 Round 2: both public nonces collected"
-          description="This BIP373 PSBT now contains every required public nonce. Scan this exact Round 2 PSBT with each signer to request its partial signature."
-          additionalDescription="Keep each COLDCARD that created a nonce powered on. Its secret nonce remains tied to this exact signing session."
+          title={signingComplete ? 'MuSig2 Round 2: partial signatures complete' : 'MuSig2 Round 2: collect partial signatures'}
+          description={
+            signingComplete
+              ? 'BlueWallet has collected every expected BIP373 partial signature for this signing session.'
+              : 'Give this same Round 2 PSBT to either signer by scanning the BBQr or exporting the signer PSBT file. Import each signed response by QR/BBQr or file.'
+          }
+          additionalDescription="Keep each COLDCARD that created a nonce powered on until it has produced its Round 2 partial signature."
         />
       ) : (
         <TipBox
@@ -234,27 +266,34 @@ const MuSig2Round1QRCode: React.FC = () => {
 
       <View style={styles.details}>
         <BlueText bold>Coordinator state</BlueText>
-        <BlueText>{nonceProgress.complete ? 'NONCES_COMPLETE' : 'COLLECTING_NONCES'}</BlueText>
+        <BlueText>{coordinatorState}</BlueText>
         <BlueText>Inputs: {displayedPsbt.inputCount}</BlueText>
         <BlueText>
           BIP373 public nonces: {nonceProgress.collected}/{nonceProgress.expected}
         </BlueText>
+        {partialSignatureProgress && (
+          <BlueText>
+            BIP373 partial signatures: {partialSignatureProgress.collected}/{partialSignatureProgress.expected}
+          </BlueText>
+        )}
         <BlueText>BIP373 participants: {hasBip373Participants ? 'present' : 'missing'}</BlueText>
         <BlueText>Transport: BBQr QR or PSBT file, either signer</BlueText>
       </View>
 
-      {!nonceProgress.complete && (
+      {!signingComplete && (
         <View style={styles.signerTransport}>
           <BlueText bold>Signer transport</BlueText>
           <BlueText style={styles.signerHint}>
-            The exported Round 1 PSBT is signer-agnostic. Use the same file for Signer 1 or Signer 2.
+            {phase === 1
+              ? 'The exported Round 1 PSBT is signer-agnostic. Use the same file for Signer 1 or Signer 2.'
+              : 'The exported Round 2 PSBT is signer-agnostic and frozen to the complete nonce set. Use the same file for either signer.'}
           </BlueText>
           {isSaving ? (
             <ActivityIndicator />
           ) : (
             <SaveFileButton
-              fileName={`${Date.now()}-musig2-round1-signer.psbt`}
-              fileContent={round1Psbt.toBase64()}
+              fileName={`${Date.now()}-musig2-round${phase}-signer.psbt`}
+              fileContent={displayedPsbt.toBase64()}
               beforeOnPress={beforeExportPsbt}
               afterOnPress={afterExportPsbt}
               style={[styles.exportButton, stylesHook.exportButton]}
@@ -274,45 +313,30 @@ const MuSig2Round1QRCode: React.FC = () => {
         </View>
       )}
 
-      {!nonceProgress.complete && (
+      {!signingComplete && (
         <>
           <BlueSpacing20 />
           <SquareButton
-            testID="MuSig2ScanReturnedRound1Psbt"
-            title="Import signer PSBT"
-            onPress={importReturnedRound1Psbt}
+            testID="MuSig2ImportReturnedSignerPsbt"
+            title={phase === 1 ? 'Import signer PSBT' : 'Import signed Round 2 PSBT'}
+            onPress={importReturnedSignerPsbt}
             style={[styles.exportButton, stylesHook.exportButton]}
           />
           <BlueText style={styles.importHint}>
-            Accepts the returned nonce-bearing PSBT from either signer. Scan QR/BBQr or choose a PSBT file on the next screen.
+            {phase === 1
+              ? 'Accepts the returned nonce-bearing PSBT from either signer. Scan QR/BBQr or choose a PSBT file on the next screen.'
+              : 'Accepts a BIP373 partial-signature PSBT from either signer. Scan its QR/BBQr or choose the returned PSBT file on the next screen.'}
           </BlueText>
         </>
       )}
 
       <BlueText style={styles.note}>
-        {nonceProgress.complete
-          ? 'Round 2 PSBT generation is now complete. Partial-signature import and final Schnorr aggregation are the next coordinator milestone, so do not broadcast or fund this experimental flow yet.'
-          : 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'}
+        {!nonceProgress.complete
+          ? 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'
+          : signingComplete
+            ? 'All partial signatures are collected. Final MuSig2 signature aggregation and transaction finalization are the next coordinator milestone, so do not broadcast or fund this experimental flow yet.'
+            : 'BlueWallet stores returned partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so both signers receive the same nonce-complete PSBT.'}
       </BlueText>
-
-      {nonceProgress.complete && (
-        <>
-          <BlueSpacing20 />
-          {isSaving ? (
-            <ActivityIndicator />
-          ) : (
-            <SaveFileButton
-              fileName={`${Date.now()}-musig2-round2.psbt`}
-              fileContent={displayedPsbt.toBase64()}
-              beforeOnPress={beforeExportPsbt}
-              afterOnPress={afterExportPsbt}
-              style={[styles.exportButton, stylesHook.exportButton]}
-            >
-              <SquareButton title="Share Round 2 PSBT" />
-            </SaveFileButton>
-          )}
-        </>
-      )}
     </ScrollView>
   );
 };
