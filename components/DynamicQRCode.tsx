@@ -2,7 +2,9 @@ import { encodeQR } from 'qr';
 import React, { Component } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { encodeUR } from '../blue_modules/ur';
+import { splitQRs } from '../blue_modules/bbqr/split';
+import { encodeUR, isHexString } from '../blue_modules/ur';
+import { hexToUint8Array, stringToUint8Array } from '../blue_modules/uint8array-extras';
 import { BlueCurrentTheme } from '../components/themes';
 import loc from '../loc';
 import QRCode from './QRCode';
@@ -28,6 +30,9 @@ interface DynamicQRCodeState {
 }
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const looksLikePsbt = (bytes: Uint8Array): boolean =>
+  bytes.length >= 5 && bytes[0] === 0x70 && bytes[1] === 0x73 && bytes[2] === 0x62 && bytes[3] === 0x74 && bytes[4] === 0xff;
 
 export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeState> {
   constructor(props: DynamicQRCodeProps) {
@@ -85,27 +90,39 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
   };
 
   buildRenderableBBQRFragments = () => {
-    const { value, capacity = 175, walletID } = this.props;
-    const capacityCandidates = Array.from(
-      new Set([capacity, 150, 125, 100, 80, 64, 48, 32].filter(candidate => candidate > 0 && candidate <= capacity)),
-    );
+    const { value } = this.props;
+    const raw = isHexString(value) ? hexToUint8Array(value) : stringToUint8Array(value);
+    const fileType = looksLikePsbt(raw) ? 'P' : 'U';
+    const maxVersionCandidates = [40, 30, 25, 20, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1] as const;
     let lastError: unknown;
 
-    for (const candidate of capacityCandidates) {
+    for (const maxVersion of maxVersionCandidates) {
       try {
-        const fragments = encodeUR(value, candidate, walletID ?? null, 'BBQR');
-        for (const fragment of fragments) {
+        // Lowering maxVersion forces BBQr to create more, smaller frames. This is
+        // more reliable than inflating minSplit, which can make the splitter itself
+        // fail before the QR renderer gets a chance to validate the frames.
+        const { parts } = splitQRs(raw, fileType, {
+          minVersion: 1,
+          maxVersion,
+        });
+
+        for (const fragment of parts) {
           encodeQR(fragment.toUpperCase(), 'raw', {
             ecc: 'low',
             border: 1,
             encoding: 'alphanumeric',
           });
         }
-        console.log('BBQr render validation passed:', { capacity: candidate, fragments: fragments.length });
-        return fragments;
+
+        console.log('BBQr render validation passed:', {
+          maxVersion,
+          fragments: parts.length,
+          longestFragment: Math.max(...parts.map(part => part.length)),
+        });
+        return parts;
       } catch (error) {
         lastError = error;
-        console.log('BBQr render validation retry:', { capacity: candidate, error: errorMessage(error) });
+        console.log('BBQr render validation retry:', { maxVersion, error: errorMessage(error) });
       }
     }
 
