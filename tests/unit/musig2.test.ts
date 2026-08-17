@@ -2,7 +2,7 @@ import assert from 'assert';
 import * as secp from '@noble/secp256k1';
 import { Psbt } from 'bitcoinjs-lib';
 
-import { getPlainPublicKey, getXOnlyPublicKey, keyAgg } from '../../blue_modules/musig2/key-aggregation';
+import { getPlainPublicKey, getXOnlyPublicKey, keyAgg, keySort } from '../../blue_modules/musig2/key-aggregation';
 import {
   addMuSig2ParticipantsToInput,
   addMuSig2PartialSignatureToInput,
@@ -71,7 +71,7 @@ describe('MuSig2 BIP327/BIP328/BIP373', () => {
 
       assert.strictEqual(wallet.getSignerCount(), count);
       assert.strictEqual(wallet.hasParticipantPublicKeys(), true);
-      assert.deepStrictEqual(wallet.getAggregatePublicKey(), getPlainPublicKey(keyAgg(publicKeys)));
+      assert.deepStrictEqual(wallet.getAggregatePublicKey(), getPlainPublicKey(keyAgg(keySort(publicKeys))));
     }
   });
 
