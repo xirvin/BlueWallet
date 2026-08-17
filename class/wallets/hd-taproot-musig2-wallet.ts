@@ -99,6 +99,19 @@ function validateXpubOrigin(xpub: string, derivationPath: string): BIP32Interfac
   return node;
 }
 
+function serializeExtendedPublicKey(node: BIP32Interface): Uint8Array {
+  const serialized = new Uint8Array(78);
+  const view = new DataView(serialized.buffer, serialized.byteOffset, serialized.byteLength);
+
+  view.setUint32(0, node.network.bip32.public, false);
+  serialized[4] = node.depth;
+  view.setUint32(5, node.parentFingerprint, false);
+  view.setUint32(9, node.index, false);
+  serialized.set(node.chainCode, 13);
+  serialized.set(node.publicKey, 45);
+  return serialized;
+}
+
 function normalizeCompressedPublicKeyHex(publicKeyHex: string, label: string): string {
   const normalized = publicKeyHex.trim().replace(/\s+/g, '').replace(/^0x/i, '');
 
@@ -401,6 +414,19 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     }));
   }
 
+  private addParticipantGlobalXpubs(psbt: Psbt): void {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('MuSig2 hardware signing requires complete signer xpub origin metadata');
+    }
+
+    const globalXpub = this._participants.map(participant => ({
+      extendedPubkey: serializeExtendedPublicKey(bip32.fromBase58(participant.xpub!)),
+      masterFingerprint: hexToUint8Array(participant.masterFingerprint!),
+      path: participant.derivationPath!,
+    }));
+    psbt.updateGlobal({ globalXpub });
+  }
+
   _addPsbtInput(psbt: Psbt, input: CoinSelectReturnInput, sequence: number, _masterFingerprintBuffer: Uint8Array): Psbt {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
       throw new Error('MuSig2 Round 1 requires a [fingerprint/path]xpub key expression for every signer');
@@ -453,6 +479,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
     // The phone is coordinator-only. Always force unsigned PSBT construction.
     const result = super.createTransaction(utxos, targets, feeRate, changeAddress, sequence, true, 0);
+    this.addParticipantGlobalXpubs(result.psbt);
 
     result.outputs.forEach((output, outputIndex) => {
       if (!output.address) return;
