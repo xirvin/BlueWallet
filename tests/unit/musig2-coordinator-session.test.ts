@@ -70,6 +70,27 @@ describe('MuSig2 coordinator session persistence and states', () => {
     assert.strictEqual(await loadMuSig2CoordinatorSession(walletID, psbt), undefined);
   });
 
+  it('rejects finalized persistence records that are not written atomically', async () => {
+    const psbt = makePsbt();
+    const walletID = 'test-musig2-wallet';
+    const finalization = {
+      psbtBase64: psbt.toBase64(),
+      rawTransactionHex: '00',
+      txid: '11'.repeat(32),
+      verifiedPartialSignatures: 2,
+      finalSignatureCount: 1,
+    };
+
+    await assert.rejects(
+      saveMuSig2CoordinatorSession(walletID, psbt, 'FINALIZED', psbt.toBase64()),
+      /requires finalization data/,
+    );
+    await assert.rejects(
+      saveMuSig2CoordinatorSession(walletID, psbt, 'COLLECTING_NONCES', psbt.toBase64(), finalization),
+      /only be stored in FINALIZED state/,
+    );
+  });
+
   it('binds the persistence key to both wallet identity and unsigned transaction', () => {
     const psbt = makePsbt(1n);
     const changed = makePsbt(2n);
