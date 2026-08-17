@@ -1,4 +1,6 @@
+import * as bitcoin from 'bitcoinjs-lib';
 import { Psbt } from 'bitcoinjs-lib';
+import ecc from '../noble_ecc';
 import { bytesEqual, concatBytes, getPlainPublicKey, keyAgg, parsePlainPublicKey } from './key-aggregation';
 
 export const PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS = 0x1a;
@@ -131,6 +133,36 @@ export function getMuSig2PublicNonces(psbt: Psbt): MuSig2PublicNonceRecord[] {
   return records;
 }
 
+function getKeyPathSigningAggregatePublicKey(psbt: Psbt, inputIndex: number, participantSet: MuSig2ParticipantSet): Uint8Array {
+  const input = psbt.data.inputs[inputIndex];
+  if (!input) throw new Error(`MuSig2 PSBT input ${inputIndex} does not exist`);
+
+  // Direct BIP327 aggregates can use the participant-set aggregate itself.
+  // For Taproot key-path spends, BIP373/Bitcoin Core/COLDCARD key the nonce by
+  // the actual signing key after BIP328 derivation and the BIP341 TapTweak.
+  if (!input.tapInternalKey) return participantSet.aggregatePublicKey;
+  if (input.tapInternalKey.length !== 32) throw new Error(`Invalid Taproot internal key on input ${inputIndex}`);
+
+  const tweakData = input.tapMerkleRoot ? concatBytes(input.tapInternalKey, input.tapMerkleRoot) : input.tapInternalKey;
+  const tweak = bitcoin.crypto.taggedHash('TapTweak', tweakData);
+  const tweaked = ecc.xOnlyPointAddTweak(input.tapInternalKey, tweak);
+  if (!tweaked) throw new Error(`Could not derive Taproot output key for MuSig2 input ${inputIndex}`);
+
+  const compressed = new Uint8Array(33);
+  compressed[0] = tweaked.parity === 1 ? 0x03 : 0x02;
+  compressed.set(tweaked.xOnlyPubkey, 1);
+
+  const witnessScript = input.witnessUtxo?.script;
+  if (witnessScript) {
+    const isP2tr = witnessScript.length === 34 && witnessScript[0] === 0x51 && witnessScript[1] === 0x20;
+    if (!isP2tr || !bytesEqual(witnessScript.slice(2), tweaked.xOnlyPubkey)) {
+      throw new Error(`MuSig2 Taproot output key does not match witness UTXO on input ${inputIndex}`);
+    }
+  }
+
+  return compressed;
+}
+
 function getExpectedKeyPathNonces(psbt: Psbt) {
   const expected = new Map<string, { inputIndex: number; participantPublicKey: Uint8Array; aggregatePublicKey: Uint8Array }>();
 
@@ -141,9 +173,10 @@ function getExpectedKeyPathNonces(psbt: Psbt) {
     }
 
     const set = sets[0];
+    const signingAggregatePublicKey = getKeyPathSigningAggregatePublicKey(psbt, inputIndex, set);
     for (const participantPublicKey of set.participantPublicKeys) {
-      const id = nonceRecordId(inputIndex, participantPublicKey, set.aggregatePublicKey);
-      expected.set(id, { inputIndex, participantPublicKey, aggregatePublicKey: set.aggregatePublicKey });
+      const id = nonceRecordId(inputIndex, participantPublicKey, signingAggregatePublicKey);
+      expected.set(id, { inputIndex, participantPublicKey, aggregatePublicKey: signingAggregatePublicKey });
     }
   }
 
@@ -160,7 +193,7 @@ export function getMuSig2NonceProgress(psbt: Psbt): MuSig2NonceProgress {
     }
     const id = nonceRecordId(record.inputIndex, record.participantPublicKey, record.aggregatePublicKey);
     if (!expected.has(id)) {
-      throw new Error(`MuSig2 public nonce on input ${record.inputIndex} is not from an expected participant`);
+      throw new Error(`MuSig2 public nonce on input ${record.inputIndex} is not from an expected participant or signing key`);
     }
     collected.add(id);
   }
@@ -212,7 +245,7 @@ export function mergeMuSig2Round1Psbt(basePsbt: Psbt, returnedPsbt: Psbt): MuSig
 
     const id = nonceRecordId(record.inputIndex, record.participantPublicKey, record.aggregatePublicKey);
     if (!expected.has(id)) {
-      throw new Error(`MuSig2 public nonce on input ${record.inputIndex} is not from an expected participant`);
+      throw new Error(`MuSig2 public nonce on input ${record.inputIndex} is not from an expected participant or signing key`);
     }
 
     const prior = existing.get(id);
