@@ -62,6 +62,6 @@ describe('MuSig2 synthetic signing dry run', () => {
       '03DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659',
     ]);
 
-    assert.throws(() => createMuSig2DryRun(wallet), /requires two signer/);
+    assert.throws(() => createMuSig2DryRun(wallet), /requires complete .* every signer/);
   });
 });
