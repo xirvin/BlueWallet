@@ -6,6 +6,8 @@ import {
   getMuSig2PublicNonces,
   PSBT_IN_MUSIG2_PARTIAL_SIG,
 } from './psbt';
+import { createMuSig2KeyPathSigningContext } from './signing-context';
+import { partialSigVerify } from './session';
 
 export type MuSig2PartialSignatureRecord = {
   inputIndex: number;
@@ -126,6 +128,39 @@ function assertReturnedNonceSetMatches(basePsbt: Psbt, returnedPsbt: Psbt) {
   }
 }
 
+function assertPartialSignatureCryptographicallyValid(psbt: Psbt, record: MuSig2PartialSignatureRecord) {
+  if (record.tapLeafHash) {
+    throw new Error('MuSig2 coordinator currently supports key-path partial signatures only');
+  }
+
+  const context = createMuSig2KeyPathSigningContext(psbt, record.inputIndex);
+  if (!bytesEqual(record.aggregatePublicKey, context.signingAggregatePublicKey)) {
+    throw new Error(`MuSig2 partial signature on input ${record.inputIndex} targets the wrong signing key`);
+  }
+
+  const participantIndex = context.participantPublicKeys.findIndex(key => bytesEqual(key, record.participantPublicKey));
+  if (participantIndex < 0) {
+    throw new Error(`MuSig2 partial signature on input ${record.inputIndex} is not from an expected participant or signing key`);
+  }
+
+  if (
+    !partialSigVerify(
+      record.partialSignature,
+      context.publicNonces[participantIndex],
+      context.participantPublicKeys[participantIndex],
+      context.session,
+    )
+  ) {
+    throw new Error(`MuSig2 partial signature failed cryptographic verification on input ${record.inputIndex}`);
+  }
+}
+
+export function verifyMuSig2PartialSignatures(psbt: Psbt): number {
+  const records = getMuSig2PartialSignatures(psbt);
+  records.forEach(record => assertPartialSignatureCryptographicallyValid(psbt, record));
+  return records.length;
+}
+
 export function getMuSig2PartialSignatureProgress(psbt: Psbt): MuSig2PartialSignatureProgress {
   const expected = getExpectedRound2Records(psbt);
   const collected = new Set<string>();
@@ -188,6 +223,11 @@ export function mergeMuSig2Round2Psbt(basePsbt: Psbt, returnedPsbt: Psbt): MuSig
     if (!expected.has(id)) {
       throw new Error(`MuSig2 partial signature on input ${record.inputIndex} is not from an expected participant or signing key`);
     }
+
+    // Never let an unverified 0x1c enter coordinator state. Verification is
+    // against the exact BIP341 sighash, participant public nonce, BIP328
+    // derivation and TapTweak reconstructed from the frozen Round 2 PSBT.
+    assertPartialSignatureCryptographicallyValid(basePsbt, record);
 
     const prior = existing.get(id);
     if (prior) {
