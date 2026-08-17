@@ -116,6 +116,15 @@ export function deriveMuSig2ActiveState(psbt: Psbt): MuSig2CoordinatorState {
   return 'NONCES_COMPLETE';
 }
 
+function assertFinalizationStateConsistency(state: MuSig2CoordinatorState, finalization?: MuSig2PersistedFinalization) {
+  if (state === 'FINALIZED' && !finalization) {
+    throw new Error('Finalized MuSig2 coordinator state requires finalization data');
+  }
+  if (state !== 'FINALIZED' && finalization) {
+    throw new Error('MuSig2 finalization data can only be stored in FINALIZED state');
+  }
+}
+
 function parseStoredRecord(raw: string, walletID: string, round1Psbt: Psbt): MuSig2CoordinatorSessionRecord {
   let parsed: unknown;
   try {
@@ -147,13 +156,7 @@ function parseStoredRecord(raw: string, walletID: string, round1Psbt: Psbt): MuS
     throw new Error('Stored MuSig2 coordinator PSBT contains a different unsigned transaction');
   }
 
-  if (candidate.state === 'FINALIZED' && !candidate.finalization) {
-    throw new Error('Stored finalized MuSig2 session is missing finalization data');
-  }
-  if (candidate.finalization && candidate.state !== 'FINALIZED') {
-    throw new Error('Stored MuSig2 finalization data is attached to a non-finalized session');
-  }
-
+  assertFinalizationStateConsistency(candidate.state, candidate.finalization);
   return candidate as MuSig2CoordinatorSessionRecord;
 }
 
@@ -173,6 +176,8 @@ export async function saveMuSig2CoordinatorSession(
   finalization?: MuSig2PersistedFinalization,
   lastError?: string,
 ): Promise<MuSig2CoordinatorSessionRecord> {
+  assertFinalizationStateConsistency(state, finalization);
+
   const sessionId = getMuSig2CoordinatorSessionId(walletID, round1Psbt);
   const record: MuSig2CoordinatorSessionRecord = {
     version: MUSIG2_COORDINATOR_SESSION_VERSION,
