@@ -477,7 +477,7 @@ const MuSig2Round1QRCode: React.FC = () => {
           description={
             signingComplete
               ? 'BlueWallet has already cryptographically verified every imported BIP373 partial signature. Final aggregation performs a second verification pass.'
-              : 'Give this same frozen Round 2 PSBT to either signer by scanning the BBQr or exporting the signer PSBT file. Import each signed response by QR/BBQr or file.'
+              : 'Give this same frozen Round 2 PSBT to any signer by scanning the BBQr or exporting the signer PSBT file. Import each signed response by QR/BBQr or file.'
           }
           additionalDescription="Keep each COLDCARD that created a nonce powered on until it has produced its Round 2 partial signature."
         />
@@ -485,7 +485,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         <TipBox
           number="1"
           title="MuSig2 Round 1: collect public nonces"
-          description="Give the same clean Round 1 PSBT to either signer by scanning the BBQr below or exporting the signer PSBT file. Import each returned signer PSBT by QR/BBQr or file."
+          description="Give the same clean Round 1 PSBT to any signer by scanning the BBQr below or exporting the signer PSBT file. Repeat for every signer in the vault, importing each returned signer PSBT by QR/BBQr or file."
           additionalDescription="Do not move to Round 2 until BlueWallet reports NONCES_COMPLETE. Keep any COLDCARD that produced a nonce powered on until Round 2 is finished."
         />
       )}
@@ -528,7 +528,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         {lastError && <BlueText style={[styles.warning, stylesHook.warning]}>{lastError}</BlueText>}
         <BlueText>BIP373 participants: {hasBip373Participants ? 'present' : 'missing'}</BlueText>
         <BlueText>Session persistence: public coordinator state only</BlueText>
-        <BlueText>Transport: BBQr QR or PSBT file, either signer</BlueText>
+        <BlueText>Transport: BBQr QR or PSBT file, any signer</BlueText>
       </View>
 
       {blockedTerminalState && (
@@ -548,8 +548,8 @@ const MuSig2Round1QRCode: React.FC = () => {
           <BlueText bold>Signer transport</BlueText>
           <BlueText style={styles.signerHint}>
             {phase === 1
-              ? 'The exported Round 1 PSBT is signer-agnostic. Use the same file for Signer 1 or Signer 2.'
-              : 'The exported Round 2 PSBT is signer-agnostic and frozen to the complete nonce set. Use the same file for either signer.'}
+              ? 'The exported Round 1 PSBT is signer-agnostic. Use the same file for every signer in this vault.'
+              : 'The exported Round 2 PSBT is signer-agnostic and frozen to the complete nonce set. Use the same file for every signer in this vault.'}
           </BlueText>
           {isSaving ? (
             <ActivityIndicator />
@@ -587,8 +587,8 @@ const MuSig2Round1QRCode: React.FC = () => {
           />
           <BlueText style={styles.importHint}>
             {phase === 1
-              ? 'Accepts the returned nonce-bearing PSBT from either signer. Scan QR/BBQr or choose a PSBT file on the next screen.'
-              : 'Accepts a BIP373 partial-signature PSBT from either signer. Each partial signature is cryptographically verified before BlueWallet stores it.'}
+              ? 'Accepts the returned nonce-bearing PSBT from any signer. Scan QR/BBQr or choose a PSBT file on the next screen.'
+              : 'Accepts a BIP373 partial-signature PSBT from any signer. Each partial signature is cryptographically verified before BlueWallet stores it.'}
           </BlueText>
         </>
       )}
@@ -667,7 +667,7 @@ const MuSig2Round1QRCode: React.FC = () => {
               ? 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'
               : signingComplete
                 ? 'All imported partial signatures already passed individual cryptographic verification. Finalization performs the verification again before aggregation.'
-                : 'BlueWallet stores verified partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so both signers receive the same nonce-complete PSBT.'}
+                : 'BlueWallet stores verified partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so every signer receives the same nonce-complete PSBT.'}
       </BlueText>
     </ScrollView>
   );
