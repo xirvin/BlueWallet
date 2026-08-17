@@ -26,6 +26,13 @@ const SECRET_KEYS = [1n, 2n].map(value => secp.etc.numberToBytesBE(value));
 const PARTICIPANT_KEYS = SECRET_KEYS.map(secretKey => secp.getPublicKey(secretKey, true));
 const ROOT_AGGREGATE_KEY = getPlainPublicKey(keyAgg(PARTICIPANT_KEYS));
 
+function hexToBytes(hex: string): Uint8Array {
+  assert.strictEqual(hex.length % 2, 0);
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return bytes;
+}
+
 function makeSigningPsbt() {
   const aggregateNode = bip32.fromPublicKey(ROOT_AGGREGATE_KEY, BIP328_CHAIN_CODE);
   const internalKey = aggregateNode.derive(0).derive(0).publicKey.slice(1);
@@ -81,6 +88,55 @@ function makeSigningPsbt() {
 }
 
 describe('MuSig2 final signature aggregation and Taproot finalization', () => {
+  it('reconstructs the BIP328 and TapTweak signing key observed in the Coldcard interoperability session', () => {
+    const participantKeys = [
+      hexToBytes('021684a36e16e7d09e7a006aa1dc4c59a9e6936fd53a62f38a8667f6fc08985223'),
+      hexToBytes('02591012daa7dff092a5ea49045253078334167a586a6f7530e237e51df5e8bdf6'),
+    ];
+    const rootAggregateKey = hexToBytes('03564dfd493fb6d2a045b701d1cfdd50af76b6ce63b3555416dc52b493dd3aa2b9');
+    const internalKey = hexToBytes('055962bb1ee93f4e1cef27ba5068f2854917f6fc08117ac16faa2ed1e8ea93de');
+    const signingAggregateKey = hexToBytes('0200ec1ee2e1ea23a8aa57c2695a45c8f9b03a0fbdb4b70395c530997ddca00c45');
+
+    assert.deepStrictEqual(getPlainPublicKey(keyAgg(participantKeys)), rootAggregateKey);
+
+    const psbt = new Psbt();
+    psbt.addInput({
+      hash: '11'.repeat(32),
+      index: 0,
+      witnessUtxo: {
+        script: concatBytes(Uint8Array.of(0x51, 0x20), signingAggregateKey.slice(1)),
+        value: 100_000n,
+      },
+      tapInternalKey: internalKey,
+      tapBip32Derivation: [
+        {
+          pubkey: internalKey,
+          masterFingerprint: hexToBytes('98765ee6'),
+          path: 'm/0/0',
+          leafHashes: [],
+        },
+      ],
+    });
+    psbt.addOutput({ script: Uint8Array.of(0x6a), value: 99_800n });
+    addMuSig2ParticipantsToInput(psbt, 0, rootAggregateKey, participantKeys);
+
+    const nonceValue1 = nonceGen({
+      random32: new Uint8Array(32).fill(11),
+      secretKey: SECRET_KEYS[0],
+      publicKey: PARTICIPANT_KEYS[0],
+    }).publicNonce;
+    const nonceValue2 = nonceGen({
+      random32: new Uint8Array(32).fill(12),
+      secretKey: SECRET_KEYS[1],
+      publicKey: PARTICIPANT_KEYS[1],
+    }).publicNonce;
+    addMuSig2PublicNonceToInput(psbt, 0, participantKeys[0], signingAggregateKey, nonceValue1);
+    addMuSig2PublicNonceToInput(psbt, 0, participantKeys[1], signingAggregateKey, nonceValue2);
+
+    const context = createMuSig2KeyPathSigningContext(psbt, 0);
+    assert.deepStrictEqual(context.signingAggregatePublicKey, signingAggregateKey);
+  });
+
   it('verifies both partial signatures, aggregates BIP340 signature and extracts the transaction', () => {
     const { psbt, signingAggregateKey, partial1, partial2 } = makeSigningPsbt();
     addMuSig2PartialSignatureToInput(psbt, 0, PARTICIPANT_KEYS[0], signingAggregateKey, partial1);
