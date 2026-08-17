@@ -8,6 +8,7 @@ import { getMuSig2PartialSignatureProgress, verifyMuSig2PartialSignatures } from
 
 export const MUSIG2_COORDINATOR_SESSION_VERSION = 1;
 const STORAGE_PREFIX = 'bluewallet:musig2:coordinator:v1:';
+const WALLET_INDEX_PREFIX = 'bluewallet:musig2:coordinator:v1:wallet-index:';
 
 export type MuSig2CoordinatorState =
   | 'CREATED'
@@ -33,10 +34,21 @@ export type MuSig2CoordinatorSessionRecord = {
   sessionId: string;
   walletID: string;
   state: MuSig2CoordinatorState;
+  round1PsbtBase64?: string;
   coordinatorPsbtBase64: string;
   finalization?: MuSig2PersistedFinalization;
   lastError?: string;
   updatedAt: number;
+};
+
+export type MuSig2CoordinatorSessionSummary = {
+  sessionId: string;
+  walletID: string;
+  state: MuSig2CoordinatorState;
+  round1PsbtBase64: string;
+  coordinatorPsbtBase64: string;
+  updatedAt: number;
+  lastError?: string;
 };
 
 const VALID_STATES = new Set<MuSig2CoordinatorState>([
@@ -52,6 +64,13 @@ const VALID_STATES = new Set<MuSig2CoordinatorState>([
 ]);
 
 const TERMINAL_STATES = new Set<MuSig2CoordinatorState>(['FINALIZED', 'CANCELLED', 'NONCE_INVALIDATED', 'FAILED']);
+const RESUMABLE_STATES = new Set<MuSig2CoordinatorState>([
+  'CREATED',
+  'COLLECTING_NONCES',
+  'NONCES_COMPLETE',
+  'COLLECTING_PARTIAL_SIGNATURES',
+  'SIGNATURES_COMPLETE',
+]);
 
 const TRANSITIONS: Record<MuSig2CoordinatorState, Set<MuSig2CoordinatorState>> = {
   CREATED: new Set(['COLLECTING_NONCES', 'CANCELLED', 'FAILED']),
@@ -85,8 +104,16 @@ function storageKey(walletID: string, round1Psbt: Psbt): string {
   return `${STORAGE_PREFIX}${getMuSig2CoordinatorSessionId(walletID, round1Psbt)}`;
 }
 
+function walletIndexKey(walletID: string): string {
+  return `${WALLET_INDEX_PREFIX}${walletID}`;
+}
+
 export function isMuSig2TerminalState(state: MuSig2CoordinatorState): boolean {
   return TERMINAL_STATES.has(state);
+}
+
+export function isMuSig2ResumableState(state: MuSig2CoordinatorState): boolean {
+  return RESUMABLE_STATES.has(state);
 }
 
 export function assertMuSig2StateTransition(from: MuSig2CoordinatorState, to: MuSig2CoordinatorState): void {
@@ -156,8 +183,85 @@ function parseStoredRecord(raw: string, walletID: string, round1Psbt: Psbt): MuS
     throw new Error('Stored MuSig2 coordinator PSBT contains a different unsigned transaction');
   }
 
+  if (candidate.round1PsbtBase64) {
+    let storedRound1: Psbt;
+    try {
+      storedRound1 = Psbt.fromBase64(candidate.round1PsbtBase64);
+    } catch {
+      throw new Error('Stored MuSig2 Round 1 PSBT is invalid');
+    }
+    if (!bytesEqual(unsignedTransactionBytes(storedRound1), unsignedTransactionBytes(round1Psbt))) {
+      throw new Error('Stored MuSig2 Round 1 PSBT contains a different unsigned transaction');
+    }
+  }
+
   assertFinalizationStateConsistency(candidate.state, candidate.finalization);
   return candidate as MuSig2CoordinatorSessionRecord;
+}
+
+function isSessionSummary(value: unknown, walletID: string): value is MuSig2CoordinatorSessionSummary {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<MuSig2CoordinatorSessionSummary>;
+  return (
+    typeof candidate.sessionId === 'string' &&
+    candidate.walletID === walletID &&
+    Boolean(candidate.state && VALID_STATES.has(candidate.state)) &&
+    typeof candidate.round1PsbtBase64 === 'string' &&
+    typeof candidate.coordinatorPsbtBase64 === 'string' &&
+    typeof candidate.updatedAt === 'number'
+  );
+}
+
+async function loadWalletIndex(walletID: string): Promise<MuSig2CoordinatorSessionSummary[]> {
+  const raw = await AsyncStorage.getItem(walletIndexKey(walletID));
+  if (!raw) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(item => isSessionSummary(item, walletID));
+  } catch {
+    // The index is only a public navigation aid. A malformed index must never
+    // bypass the cryptographically validated per-session restore path.
+    return [];
+  }
+}
+
+async function upsertWalletIndex(record: MuSig2CoordinatorSessionRecord, round1PsbtBase64: string): Promise<void> {
+  const existing = await loadWalletIndex(record.walletID);
+  const summary: MuSig2CoordinatorSessionSummary = {
+    sessionId: record.sessionId,
+    walletID: record.walletID,
+    state: record.state,
+    round1PsbtBase64,
+    coordinatorPsbtBase64: record.coordinatorPsbtBase64,
+    updatedAt: record.updatedAt,
+    ...(record.lastError ? { lastError: record.lastError } : {}),
+  };
+  const next = [summary, ...existing.filter(item => item.sessionId !== record.sessionId)]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 50);
+  await AsyncStorage.setItem(walletIndexKey(record.walletID), JSON.stringify(next));
+}
+
+async function removeFromWalletIndex(walletID: string, sessionId: string): Promise<void> {
+  const existing = await loadWalletIndex(walletID);
+  const next = existing.filter(item => item.sessionId !== sessionId);
+  if (next.length === 0) {
+    await AsyncStorage.removeItem(walletIndexKey(walletID));
+  } else {
+    await AsyncStorage.setItem(walletIndexKey(walletID), JSON.stringify(next));
+  }
+}
+
+export async function listMuSig2CoordinatorSessions(
+  walletID: string,
+  resumableOnly = true,
+): Promise<MuSig2CoordinatorSessionSummary[]> {
+  const sessions = await loadWalletIndex(walletID);
+  return sessions
+    .filter(session => !resumableOnly || isMuSig2ResumableState(session.state))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function loadMuSig2CoordinatorSession(
@@ -179,11 +283,13 @@ export async function saveMuSig2CoordinatorSession(
   assertFinalizationStateConsistency(state, finalization);
 
   const sessionId = getMuSig2CoordinatorSessionId(walletID, round1Psbt);
+  const round1PsbtBase64 = round1Psbt.toBase64();
   const record: MuSig2CoordinatorSessionRecord = {
     version: MUSIG2_COORDINATOR_SESSION_VERSION,
     sessionId,
     walletID,
     state,
+    round1PsbtBase64,
     coordinatorPsbtBase64,
     ...(finalization ? { finalization } : {}),
     ...(lastError ? { lastError } : {}),
@@ -193,9 +299,12 @@ export async function saveMuSig2CoordinatorSession(
   // This deliberately persists public coordinator state only. Signer secret
   // nonces and private keys are never present in the coordinator PSBT or record.
   await AsyncStorage.setItem(storageKey(walletID, round1Psbt), JSON.stringify(record));
+  await upsertWalletIndex(record, round1PsbtBase64);
   return record;
 }
 
 export async function clearMuSig2CoordinatorSession(walletID: string, round1Psbt: Psbt): Promise<void> {
+  const sessionId = getMuSig2CoordinatorSessionId(walletID, round1Psbt);
   await AsyncStorage.removeItem(storageKey(walletID, round1Psbt));
+  await removeFromWalletIndex(walletID, sessionId);
 }
