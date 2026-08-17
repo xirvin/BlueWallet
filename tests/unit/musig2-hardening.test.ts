@@ -179,7 +179,7 @@ describe('MuSig2 signing-session hardening', () => {
   it('rejects partial-signature bit mutation before coordinator acceptance', () => {
     const fixture = prepareSession(5);
     const corrupted = new Uint8Array(fixture.partials[0]);
-    corrupted[0] ^= 1;
+    corrupted[31] ^= 1;
     const response = addSignerPartial(getMuSig2Round2SignerPsbt(fixture.round2Psbt), fixture, 0, corrupted);
 
     assert.throws(() => mergeMuSig2Round2Psbt(fixture.round2Psbt, response), /failed cryptographic verification/);
