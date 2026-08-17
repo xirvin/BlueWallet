@@ -4,6 +4,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 
+import { finalizeMuSig2Psbt } from '../../blue_modules/musig2/finalize';
 import {
   getMuSig2NonceProgress,
   mergeMuSig2Round1Psbt,
@@ -28,6 +29,14 @@ import { SendDetailsStackParamList } from '../../navigation/SendDetailsStackPara
 
 type RouteParams = RouteProp<SendDetailsStackParamList, 'MuSig2Round1QRCode'>;
 type NavigationProps = NativeStackNavigationProp<SendDetailsStackParamList, 'MuSig2Round1QRCode'>;
+
+type FinalizationState = {
+  psbtBase64: string;
+  rawTransactionHex: string;
+  txid: string;
+  verifiedPartialSignatures: number;
+  finalSignatureCount: number;
+};
 
 function parseReturnedPsbt(data: string): bitcoin.Psbt {
   const payload = data.trim();
@@ -109,6 +118,7 @@ const MuSig2Round1QRCode: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [coordinatorPsbtBase64, setCoordinatorPsbtBase64] = useState(psbtBase64);
   const [returnedPsbtDebug, setReturnedPsbtDebug] = useState<string>();
+  const [finalization, setFinalization] = useState<FinalizationState>();
 
   const round1Psbt = useMemo(() => bitcoin.Psbt.fromBase64(psbtBase64), [psbtBase64]);
   const coordinatorPsbt = useMemo(() => bitcoin.Psbt.fromBase64(coordinatorPsbtBase64), [coordinatorPsbtBase64]);
@@ -121,8 +131,12 @@ const MuSig2Round1QRCode: React.FC = () => {
     () => (nonceProgress.complete ? getMuSig2Round2SignerPsbt(coordinatorPsbt) : undefined),
     [coordinatorPsbt, nonceProgress.complete],
   );
-  const displayedPsbt = round2SignerPsbt ?? round1Psbt;
-  const phase = nonceProgress.complete ? 2 : 1;
+  const finalizedPsbt = useMemo(
+    () => (finalization ? bitcoin.Psbt.fromBase64(finalization.psbtBase64) : undefined),
+    [finalization],
+  );
+  const displayedPsbt = finalizedPsbt ?? round2SignerPsbt ?? round1Psbt;
+  const phase = finalization ? 3 : nonceProgress.complete ? 2 : 1;
   const signingComplete = partialSignatureProgress?.complete ?? false;
 
   const hasBip373Participants = useMemo(
@@ -146,6 +160,8 @@ const MuSig2Round1QRCode: React.FC = () => {
   const handleReturnedSignerPsbt = useCallback(
     (data: string) => {
       try {
+        if (finalization) throw new Error('This MuSig2 signing session is already finalized');
+
         const returnedPsbt = parseReturnedPsbt(data);
         if (__DEV__) {
           const debug = describeReturnedPsbt(returnedPsbt, round1Psbt);
@@ -171,7 +187,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         } else if (result.complete) {
           presentAlert({
             title: 'MuSig2 Round 2 complete',
-            message: 'All expected BIP373 partial signatures have been collected.',
+            message: 'All expected BIP373 partial signatures have been collected. Verify and finalize them next.',
           });
         }
       } catch (error: any) {
@@ -182,7 +198,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         });
       }
     },
-    [coordinatorPsbt, nonceProgress.complete, round1Psbt],
+    [coordinatorPsbt, finalization, nonceProgress.complete, round1Psbt],
   );
 
   useEffect(() => {
@@ -199,6 +215,26 @@ const MuSig2Round1QRCode: React.FC = () => {
     });
   }, [navigation]);
 
+  const verifyAndFinalize = useCallback(() => {
+    try {
+      const result = finalizeMuSig2Psbt(coordinatorPsbt);
+      setFinalization({
+        psbtBase64: result.psbt.toBase64(),
+        rawTransactionHex: result.rawTransactionHex,
+        txid: result.txid,
+        verifiedPartialSignatures: result.verifiedPartialSignatures,
+        finalSignatureCount: result.finalSignatures.length,
+      });
+      presentAlert({
+        title: 'MuSig2 finalized',
+        message: `Verified ${result.verifiedPartialSignatures} partial signatures and created ${result.finalSignatures.length} valid BIP340 Schnorr signature(s).`,
+      });
+    } catch (error: any) {
+      if (__DEV__) console.log('[MuSig2] finalization rejected:', error);
+      presentAlert({ title: 'MuSig2 finalization rejected', message: error?.message ?? String(error) });
+    }
+  }, [coordinatorPsbt]);
+
   const beforeExportPsbt = useCallback(async () => {
     dynamicQRCode.current?.stopAutoMove();
     setIsSaving(true);
@@ -209,11 +245,13 @@ const MuSig2Round1QRCode: React.FC = () => {
     dynamicQRCode.current?.startAutoMove();
   }, []);
 
-  const coordinatorState = !nonceProgress.complete
-    ? 'COLLECTING_NONCES'
-    : signingComplete
-      ? 'SIGNATURES_COMPLETE'
-      : 'COLLECTING_PARTIAL_SIGNATURES';
+  const coordinatorState = finalization
+    ? 'FINALIZED'
+    : !nonceProgress.complete
+      ? 'COLLECTING_NONCES'
+      : signingComplete
+        ? 'SIGNATURES_COMPLETE'
+        : 'COLLECTING_PARTIAL_SIGNATURES';
 
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
@@ -230,13 +268,20 @@ const MuSig2Round1QRCode: React.FC = () => {
       contentContainerStyle={styles.container}
       testID="MuSig2Round1QRCodeScrollView"
     >
-      {nonceProgress.complete ? (
+      {finalization ? (
+        <TipBox
+          number="3"
+          title="MuSig2 finalized"
+          description="BlueWallet cryptographically verified every BIP373 partial signature, aggregated the final BIP340 Schnorr signature, and finalized the Taproot key-path witness."
+          additionalDescription="This experimental dry-run transaction uses a nonexistent input. Broadcast remains intentionally unavailable."
+        />
+      ) : nonceProgress.complete ? (
         <TipBox
           number="2"
           title={signingComplete ? 'MuSig2 Round 2: partial signatures complete' : 'MuSig2 Round 2: collect partial signatures'}
           description={
             signingComplete
-              ? 'BlueWallet has collected every expected BIP373 partial signature for this signing session.'
+              ? 'BlueWallet has collected every expected BIP373 partial signature. Verify them cryptographically and finalize the transaction next.'
               : 'Give this same Round 2 PSBT to either signer by scanning the BBQr or exporting the signer PSBT file. Import each signed response by QR/BBQr or file.'
           }
           additionalDescription="Keep each COLDCARD that created a nonce powered on until it has produced its Round 2 partial signature."
@@ -276,11 +321,18 @@ const MuSig2Round1QRCode: React.FC = () => {
             BIP373 partial signatures: {partialSignatureProgress.collected}/{partialSignatureProgress.expected}
           </BlueText>
         )}
+        {finalization && (
+          <>
+            <BlueText>Cryptographically verified partial signatures: {finalization.verifiedPartialSignatures}</BlueText>
+            <BlueText>Final BIP340 signatures: {finalization.finalSignatureCount}</BlueText>
+            <BlueText selectable>TXID: {finalization.txid}</BlueText>
+          </>
+        )}
         <BlueText>BIP373 participants: {hasBip373Participants ? 'present' : 'missing'}</BlueText>
         <BlueText>Transport: BBQr QR or PSBT file, either signer</BlueText>
       </View>
 
-      {!signingComplete && (
+      {!signingComplete && !finalization && (
         <View style={styles.signerTransport}>
           <BlueText bold>Signer transport</BlueText>
           <BlueText style={styles.signerHint}>
@@ -313,7 +365,7 @@ const MuSig2Round1QRCode: React.FC = () => {
         </View>
       )}
 
-      {!signingComplete && (
+      {!signingComplete && !finalization && (
         <>
           <BlueSpacing20 />
           <SquareButton
@@ -330,12 +382,60 @@ const MuSig2Round1QRCode: React.FC = () => {
         </>
       )}
 
+      {signingComplete && !finalization && (
+        <>
+          <BlueSpacing20 />
+          <SquareButton
+            testID="MuSig2VerifyAndFinalize"
+            title="Verify & finalize MuSig2"
+            onPress={verifyAndFinalize}
+            style={[styles.exportButton, stylesHook.exportButton]}
+          />
+          <BlueText style={styles.importHint}>
+            Reconstructs the BIP328 and Taproot signing context, verifies every partial signature, aggregates the final Schnorr signature, and finalizes the key-path witness.
+          </BlueText>
+        </>
+      )}
+
+      {finalization && (
+        <View style={styles.finalExports}>
+          <BlueText bold>Final transaction exports</BlueText>
+          {isSaving ? (
+            <ActivityIndicator />
+          ) : (
+            <>
+              <SaveFileButton
+                fileName={`${Date.now()}-musig2-final.psbt`}
+                fileContent={finalization.psbtBase64}
+                beforeOnPress={beforeExportPsbt}
+                afterOnPress={afterExportPsbt}
+                style={[styles.exportButton, stylesHook.exportButton]}
+              >
+                <SquareButton title="Export final PSBT" />
+              </SaveFileButton>
+              <BlueSpacing20 />
+              <SaveFileButton
+                fileName={`${Date.now()}-musig2-final-transaction.hex`}
+                fileContent={finalization.rawTransactionHex}
+                beforeOnPress={beforeExportPsbt}
+                afterOnPress={afterExportPsbt}
+                style={[styles.exportButton, stylesHook.exportButton]}
+              >
+                <SquareButton title="Export raw transaction" />
+              </SaveFileButton>
+            </>
+          )}
+        </View>
+      )}
+
       <BlueText style={styles.note}>
-        {!nonceProgress.complete
-          ? 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'
-          : signingComplete
-            ? 'All partial signatures are collected. Final MuSig2 signature aggregation and transaction finalization are the next coordinator milestone, so do not broadcast or fund this experimental flow yet.'
-            : 'BlueWallet stores returned partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so both signers receive the same nonce-complete PSBT.'}
+        {finalization
+          ? 'Final Schnorr verification passed and the Taproot witness is complete. Broadcast is deliberately disabled for this dry-run flow because its input outpoint does not exist.'
+          : !nonceProgress.complete
+            ? 'Each signer receives the unchanged clean Round 1 PSBT. BlueWallet identifies the returning signer from the validated BIP373 participant key, not from the filename or transport method.'
+            : signingComplete
+              ? 'All partial signatures are collected. Use Verify & finalize MuSig2 to perform cryptographic verification before aggregation.'
+              : 'BlueWallet stores returned partial signatures internally but keeps the signer-facing Round 2 QR/file unchanged so both signers receive the same nonce-complete PSBT.'}
       </BlueText>
     </ScrollView>
   );
@@ -362,6 +462,10 @@ const styles = StyleSheet.create({
   importHint: {
     marginTop: 8,
     lineHeight: 20,
+  },
+  finalExports: {
+    gap: 8,
+    marginTop: 20,
   },
   debugBox: {
     marginTop: 16,
