@@ -2,20 +2,29 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { useTheme } from './themes';
+import { Psbt } from 'bitcoinjs-lib';
+import { useFocusEffect, useLocale, useNavigation } from '@react-navigation/native';
+
+import {
+  MuSig2CoordinatorSessionSummary,
+  listMuSig2CoordinatorSessions,
+} from '../blue_modules/musig2/coordinator-session';
+import { getMuSig2NonceProgress } from '../blue_modules/musig2/psbt';
+import { getMuSig2PartialSignatureProgress } from '../blue_modules/musig2/round2';
 import { LightningArkWallet } from '../class/wallets/lightning-ark-wallet';
 import { LightningCustodianWallet } from '../class/wallets/lightning-custodian-wallet';
 import { MultisigHDWallet } from '../class/wallets/multisig-hd-wallet';
+import { HDTaprootMuSig2Wallet } from '../class/wallets/hd-taproot-musig2-wallet';
 import WalletGradient from '../class/wallet-gradient';
 import { TWallet } from '../class/wallets/types';
 import loc, { formatBalance, formatBalanceWithoutSuffix } from '../loc';
 import { BitcoinUnit } from '../models/bitcoinUnits';
 import { FiatUnit } from '../models/fiatUnit';
-import { BlurredBalanceView } from './BlurredBalanceView';
-import { useSettings } from '../hooks/context/useSettings';
-import ToolTipMenu from './TooltipMenu';
-import { useLocale } from '@react-navigation/native';
 import ActionSheet from '../screen/ActionSheet';
+import { BlurredBalanceView } from './BlurredBalanceView';
+import ToolTipMenu from './TooltipMenu';
+import { useSettings } from '../hooks/context/useSettings';
+import { useTheme } from './themes';
 
 const HERO_BASE_BODY_MIN_HEIGHT = 120;
 const HERO_MIN_BODY_HEIGHT = Math.round(HERO_BASE_BODY_MIN_HEIGHT * 1.2);
@@ -32,6 +41,38 @@ interface TransactionsNavigationHeaderProps {
   unitSwitching?: boolean;
 }
 
+function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): { title: string; subtitle: string } {
+  try {
+    const psbt = Psbt.fromBase64(session.coordinatorPsbtBase64);
+    const nonceProgress = getMuSig2NonceProgress(psbt);
+
+    if (session.state === 'CREATED' || session.state === 'COLLECTING_NONCES') {
+      return {
+        title: 'MuSig2 signing · Round 1',
+        subtitle: `${nonceProgress.collected}/${nonceProgress.expected} public nonces · Tap to resume`,
+      };
+    }
+
+    const partialProgress = getMuSig2PartialSignatureProgress(psbt);
+    if (session.state === 'SIGNATURES_COMPLETE') {
+      return {
+        title: 'MuSig2 signing · Ready to finalize',
+        subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap to finish`,
+      };
+    }
+
+    return {
+      title: 'MuSig2 signing · Round 2',
+      subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap to resume`,
+    };
+  } catch {
+    return {
+      title: 'MuSig2 signing session',
+      subtitle: 'Saved signing session · Tap to validate and resume',
+    };
+  }
+}
+
 const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> = ({
   wallet,
   headerOverlayHeight,
@@ -44,9 +85,12 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
   const { colors } = useTheme();
   const { hideBalance } = wallet;
   const isLightningWallet = wallet.type === LightningCustodianWallet.type || wallet.type === LightningArkWallet.type;
+  const isMuSig2Vault = wallet.type === HDTaprootMuSig2Wallet.type;
   const [allowOnchainAddress, setAllowOnchainAddress] = useState(isLightningWallet);
+  const [muSig2Sessions, setMuSig2Sessions] = useState<MuSig2CoordinatorSessionSummary[]>([]);
   const { preferredFiatCurrency } = useSettings();
   const { direction } = useLocale();
+  const navigation = useNavigation();
 
   const verifyIfWalletAllowsOnchainAddress = useCallback(() => {
     if (isLightningWallet) {
@@ -68,11 +112,34 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
     verifyIfWalletAllowsOnchainAddress();
   }, [wallet, verifyIfWalletAllowsOnchainAddress]);
 
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      if (!isMuSig2Vault) {
+        setMuSig2Sessions([]);
+        return () => {
+          active = false;
+        };
+      }
+
+      listMuSig2CoordinatorSessions(wallet.getID())
+        .then(sessions => {
+          if (active) setMuSig2Sessions(sessions);
+        })
+        .catch(error => {
+          console.warn('Could not load MuSig2 signing session index:', error);
+          if (active) setMuSig2Sessions([]);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [isMuSig2Vault, wallet]),
+  );
+
   const handleCopyPress = useCallback(() => {
     const value = formatBalance(wallet.getBalance(), unit);
-    if (value) {
-      Clipboard.setString(value);
-    }
+    if (value) Clipboard.setString(value);
   }, [unit, wallet]);
 
   const handleBalanceVisibility = useCallback(() => {
@@ -80,48 +147,31 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
   }, [hideBalance, onWalletBalanceVisibilityChange]);
 
   const changeWalletBalanceUnit = () => {
-    if (hideBalance) {
-      return;
-    }
+    if (hideBalance) return;
     let newWalletPreferredUnit = wallet.getPreferredBalanceUnit();
 
-    if (newWalletPreferredUnit === BitcoinUnit.BTC) {
-      newWalletPreferredUnit = BitcoinUnit.SATS;
-    } else if (newWalletPreferredUnit === BitcoinUnit.SATS) {
-      newWalletPreferredUnit = BitcoinUnit.LOCAL_CURRENCY;
-    } else {
-      newWalletPreferredUnit = BitcoinUnit.BTC;
-    }
+    if (newWalletPreferredUnit === BitcoinUnit.BTC) newWalletPreferredUnit = BitcoinUnit.SATS;
+    else if (newWalletPreferredUnit === BitcoinUnit.SATS) newWalletPreferredUnit = BitcoinUnit.LOCAL_CURRENCY;
+    else newWalletPreferredUnit = BitcoinUnit.BTC;
 
     onWalletUnitChange(newWalletPreferredUnit);
   };
 
   const handleManageFundsPressed = useCallback(
     (actionKeyID?: string) => {
-      if (onManageFundsPressed) {
-        onManageFundsPressed(actionKeyID);
-      }
+      if (onManageFundsPressed) onManageFundsPressed(actionKeyID);
     },
     [onManageFundsPressed],
   );
 
   const onPressMenuItem = useCallback(
     (id: string) => {
-      if (id === actionKeys.WalletBalanceVisibility) {
-        handleBalanceVisibility();
-      } else if (id === actionKeys.CopyToClipboard) {
-        handleCopyPress();
-      }
+      if (id === actionKeys.WalletBalanceVisibility) handleBalanceVisibility();
+      else if (id === actionKeys.CopyToClipboard) handleCopyPress();
     },
     [handleBalanceVisibility, handleCopyPress],
   );
 
-  // The Manage Funds menu is presented via a JS ActionSheet rather than the
-  // native context menu (ToolTipMenu): react-native-context-menu-view is
-  // Paper-only and, routed through Fabric's legacy interop on the New
-  // Architecture, its host view gets mispositioned to the header origin —
-  // overlapping the wallet label. A plain TouchableOpacity + ActionSheet lays
-  // out correctly (same pattern as the Multisig button below).
   const showManageFundsActionSheet = useCallback(() => {
     ActionSheet.showActionSheetWithOptions(
       {
@@ -136,6 +186,19 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
     );
   }, [handleManageFundsPressed]);
 
+  const resumeMuSig2Session = useCallback(
+    (session: MuSig2CoordinatorSessionSummary) => {
+      (navigation as any).navigate('SendDetailsRoot', {
+        screen: 'MuSig2Round1QRCode',
+        params: {
+          psbtBase64: session.round1PsbtBase64,
+          walletID: wallet.getID(),
+        },
+      });
+    },
+    [navigation, wallet],
+  );
+
   const currentBalance = wallet ? wallet.getBalance() : 0;
   const formattedBalance = useMemo(() => {
     return unit === BitcoinUnit.LOCAL_CURRENCY
@@ -147,24 +210,10 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
 
   const toolTipWalletBalanceActions = useMemo(() => {
     return hideBalance
-      ? [
-          {
-            id: actionKeys.WalletBalanceVisibility,
-            text: loc.transactions.details_balance_show,
-            icon: actionIcons.Eye,
-          },
-        ]
+      ? [{ id: actionKeys.WalletBalanceVisibility, text: loc.transactions.details_balance_show, icon: actionIcons.Eye }]
       : [
-          {
-            id: actionKeys.WalletBalanceVisibility,
-            text: loc.transactions.details_balance_hide,
-            icon: actionIcons.EyeSlash,
-          },
-          {
-            id: actionKeys.CopyToClipboard,
-            text: loc.transactions.details_copy,
-            icon: actionIcons.Clipboard,
-          },
+          { id: actionKeys.WalletBalanceVisibility, text: loc.transactions.details_balance_hide, icon: actionIcons.EyeSlash },
+          { id: actionKeys.CopyToClipboard, text: loc.transactions.details_copy, icon: actionIcons.Clipboard },
         ];
   }, [hideBalance]);
 
@@ -229,6 +278,29 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
             <Text style={styles.manageFundsButtonText}>{loc.multisig.manage_keys}</Text>
           </TouchableOpacity>
         )}
+
+        {isMuSig2Vault && muSig2Sessions.length > 0 && (
+          <View style={styles.signingSessions} testID="MuSig2SigningSessions">
+            <Text style={styles.signingSessionsTitle}>Signing sessions</Text>
+            {muSig2Sessions.map(session => {
+              const description = describeMuSig2Session(session);
+              return (
+                <TouchableOpacity
+                  key={session.sessionId}
+                  accessibilityRole="button"
+                  style={styles.signingSessionRow}
+                  onPress={() => resumeMuSig2Session(session)}
+                >
+                  <View style={styles.signingSessionText}>
+                    <Text style={styles.signingSessionTitle}>{description.title}</Text>
+                    <Text style={styles.signingSessionSubtitle}>{description.subtitle}</Text>
+                  </View>
+                  <Text style={styles.signingSessionChevron}>›</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </View>
       <View style={styles.bottomBarSpacer}>
         <View
@@ -249,95 +321,45 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
 };
 
 const styles = StyleSheet.create({
-  lineaderGradient: {
-    justifyContent: 'flex-start',
-    position: 'relative',
-  },
-  contentContainer: {
-    flex: 1,
-    paddingTop: WALLET_LABEL_TOP_GAP,
-    paddingHorizontal: 16,
-    paddingBottom: HERO_BOTTOM_PADDING,
-  },
-  bottomBarSpacer: {
-    position: 'relative',
-    height: 12,
-    marginBottom: 0,
-  },
+  lineaderGradient: { justifyContent: 'flex-start', position: 'relative' },
+  contentContainer: { flex: 1, paddingTop: WALLET_LABEL_TOP_GAP, paddingHorizontal: 16, paddingBottom: HERO_BOTTOM_PADDING },
+  bottomBarSpacer: { position: 'relative', height: 12, marginBottom: 0 },
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -1,
-    height: 13,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    position: 'absolute', left: 0, right: 0, bottom: -1, height: 13, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     ...Platform.select({
-      ios: {
-        shadowOffset: { width: 0, height: -8 },
-        shadowOpacity: 0.1,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 0.5,
-      },
+      ios: { shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.1, shadowRadius: 6 },
+      android: { elevation: 0.5 },
     }),
   },
-  walletLabel: {
-    backgroundColor: 'transparent',
-    fontSize: 19,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 4,
-  },
-  walletBalance: {
-    flexShrink: 1,
-    marginRight: 6,
-    minHeight: 39,
-    justifyContent: 'center',
-  },
-  balanceSection: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-  },
+  walletLabel: { backgroundColor: 'transparent', fontSize: 19, color: 'rgba(255, 255, 255, 0.7)', marginBottom: 4 },
+  walletBalance: { flexShrink: 1, marginRight: 6, minHeight: 39, justifyContent: 'center' },
+  balanceSection: { flexDirection: 'column', alignItems: 'flex-start' },
   manageFundsButton: {
-    marginTop: 14,
-    marginBottom: 10,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 9,
-    minHeight: 39,
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginTop: 14, marginBottom: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 9, minHeight: 39,
+    alignSelf: 'flex-start', justifyContent: 'center', alignItems: 'center',
   },
-  manageFundsButtonText: {
-    fontWeight: '500',
-    fontSize: 14,
-    color: '#FFFFFF',
-    padding: 12,
+  manageFundsButtonText: { fontWeight: '500', fontSize: 14, color: '#FFFFFF', padding: 12 },
+  walletBalanceAndUnitContainer: { flexDirection: 'row', alignItems: 'center', paddingRight: 10 },
+  walletBalanceText: { color: '#fff', fontWeight: 'bold', fontSize: 36, flexShrink: 1 },
+  walletPreferredUnitView: {
+    justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.25)', borderRadius: 8, minHeight: 35, minWidth: 65,
   },
-  walletBalanceAndUnitContainer: {
+  walletPreferredUnitText: { color: '#fff', fontWeight: '600' },
+  signingSessions: { marginTop: 18, gap: 8 },
+  signingSessionsTitle: { color: 'rgba(255,255,255,0.78)', fontSize: 13, fontWeight: '600', textTransform: 'uppercase' },
+  signingSessionRow: {
+    minHeight: 58,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.17)',
+    paddingHorizontal: 13,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingRight: 10,
   },
-  walletBalanceText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 36,
-    flexShrink: 1,
-  },
-  walletPreferredUnitView: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    borderRadius: 8,
-    minHeight: 35,
-    minWidth: 65,
-  },
-  walletPreferredUnitText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
+  signingSessionText: { flex: 1 },
+  signingSessionTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  signingSessionSubtitle: { color: 'rgba(255,255,255,0.78)', fontSize: 12, marginTop: 3 },
+  signingSessionChevron: { color: '#FFFFFF', fontSize: 30, lineHeight: 30, marginLeft: 8 },
 });
 
 export const actionKeys = {
@@ -348,21 +370,11 @@ export const actionKeys = {
 };
 
 export const actionIcons = {
-  Eye: {
-    iconValue: 'eye',
-  },
-  EyeSlash: {
-    iconValue: 'eye.slash',
-  },
-  Clipboard: {
-    iconValue: 'doc.on.doc',
-  },
-  Refill: {
-    iconValue: 'goforward.plus',
-  },
-  RefillWithExternalWallet: {
-    iconValue: 'qrcode',
-  },
+  Eye: { iconValue: 'eye' },
+  EyeSlash: { iconValue: 'eye.slash' },
+  Clipboard: { iconValue: 'doc.on.doc' },
+  Refill: { iconValue: 'goforward.plus' },
+  RefillWithExternalWallet: { iconValue: 'qrcode' },
 };
 
 export default TransactionsNavigationHeader;
