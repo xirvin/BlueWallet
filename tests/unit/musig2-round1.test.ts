@@ -39,14 +39,16 @@ function makeTaprootKeyPathPsbt(): { psbt: Psbt; signingAggregateKey: Uint8Array
   signingAggregateKey[0] = tweaked.parity === 1 ? 0x03 : 0x02;
   signingAggregateKey.set(tweaked.xOnlyPubkey, 1);
 
-  const payment = bitcoin.payments.p2tr({ internalPubkey: internalKey });
-  assert.ok(payment.output);
+  // P2TR scriptPubKey is OP_1 PUSH32 <x-only output key>. Construct it
+  // directly so this unit fixture does not depend on bitcoinjs-lib global ECC
+  // initialization just to create the witness UTXO script.
+  const witnessScript = concatBytes(Uint8Array.of(0x51, 0x20), tweaked.xOnlyPubkey);
 
   const psbt = new Psbt();
   psbt.addInput({
     hash: '11'.repeat(32),
     index: 0,
-    witnessUtxo: { script: payment.output, value: 100_000n },
+    witnessUtxo: { script: witnessScript, value: 100_000n },
     tapInternalKey: internalKey,
   });
   psbt.addOutput({ script: Uint8Array.of(0x6a), value: 0n });
