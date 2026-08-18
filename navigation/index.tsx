@@ -10,6 +10,7 @@ import navigationStyle, { CloseButtonPosition, withRouteParamHeaderOptions } fro
 import { useTheme } from '../components/themes';
 import WalletXpub from '../screen/wallets/xpub';
 import WalletExport from '../screen/wallets/WalletExport';
+import MuSig2DescriptorExport from '../screen/wallets/MuSig2DescriptorExport';
 import ViewEditMultisigCosignerViewSheet from '../screen/wallets/ViewEditMultisigCosignerViewSheet';
 import ViewEditMultisigProvideMnemonicsSheet from '../screen/wallets/ViewEditMultisigProvideMnemonicsSheet';
 import ViewEditMultisigShareCosignerSheet from '../screen/wallets/ViewEditMultisigShareCosignerSheet';
@@ -151,6 +152,16 @@ const MainRoot = () => {
             component={WalletXpub}
             options={navigationStyle({
               title: loc.wallets.xpub_title,
+              presentation: 'modal',
+              headerShown: true,
+              closeButtonPosition: CloseButtonPosition.Right,
+            })(theme)}
+          />
+          <DetailViewStack.Screen
+            name="MuSig2DescriptorExport"
+            component={MuSig2DescriptorExport}
+            options={navigationStyle({
+              title: 'Export wallet descriptor',
               presentation: 'modal',
               headerShown: true,
               closeButtonPosition: CloseButtonPosition.Right,
