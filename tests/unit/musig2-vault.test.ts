@@ -24,6 +24,12 @@ import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 const bip32 = BIP32Factory(ecc);
 bitcoin.initEccLib(ecc);
 
+const REAL_BSMS_SIGNER_1 =
+  "[52c4ead8/86'/0'/0']xpub6CTWUpMsz6J8agBdjV6PqsCZfdrgtQj7nasH5D4APNRoiZc3xcFCYFAumrWLcuz9U4EagrhZgMqRW3tibSvt5ie5EwzguZ6NMQrVXpEFBz9";
+const REAL_BSMS_SIGNER_2 =
+  "[32b14325/86'/0'/0']xpub6BfAYP9UKRSNBR1eRzzqoZRXNjxKDswmqTEnFGquHLagyfdxJ3v63eMkpyxu9ZuKbw6VLqRnwwQreqG1EP5n7cu9D4u4z9ffZym57ML3VHr";
+const REAL_BSMS_FIRST_ADDRESS = 'bc1pqrkpachpag3632jhcf5453wglxcr5raakjms89w9xzvhmh9qp3zshysyau';
+
 function makeSignerExpression(index: number): string {
   const root = bip32.fromSeed(new Uint8Array(32).fill(index + 1));
   const account = root.deriveHardened(86).deriveHardened(0).deriveHardened(0).neutered();
@@ -53,6 +59,13 @@ describe('MuSig2 Vault UX rules', () => {
       assert.strictEqual(wallet.hasCompleteExtendedParticipantMetadata(), true);
       assert.ok(wallet.getBIP390Descriptor().startsWith('tr(musig('));
     }
+  });
+
+  it('derives the expected first MuSig2 address from the real two-signer BSMS vector', () => {
+    const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setParticipantKeyExpressions([REAL_BSMS_SIGNER_1, REAL_BSMS_SIGNER_2]);
+
+    assert.strictEqual(wallet._getExternalAddressByIndex(0), REAL_BSMS_FIRST_ADDRESS);
   });
 
   it('includes every signer account xpub in a 7-of-7 signing PSBT', () => {
