@@ -3,7 +3,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 
-import { validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
+import { taprootWalletToMuSig2KeyExpression, validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
+import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
 import Button from '../../components/Button';
 import MultipleStepsListItem, {
@@ -12,6 +13,7 @@ import MultipleStepsListItem, {
 } from '../../components/MultipleStepsListItem';
 import presentAlert from '../../components/Alert';
 import { useTheme } from '../../components/themes';
+import { useStorage } from '../../hooks/context/useStorage';
 import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
 
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'WalletsAddMuSig2Step2'>;
@@ -21,8 +23,31 @@ const WalletsAddMuSig2Step2: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const { signerCount, walletLabel } = useRoute<RouteProps>().params;
+  const { wallets } = useStorage();
   const [signers, setSigners] = useState<string[]>(() => new Array(signerCount).fill(''));
   const data = useMemo(() => Array.from({ length: signerCount }, (_, index) => index), [signerCount]);
+
+  const signerLabels = useMemo(
+    () =>
+      signers.map(expression => {
+        if (!expression) return '';
+
+        for (const wallet of wallets) {
+          if (wallet.type !== HDTaprootWallet.type) continue;
+          try {
+            if (taprootWalletToMuSig2KeyExpression(wallet as HDTaprootWallet) === expression) {
+              return wallet.getLabel();
+            }
+          } catch {
+            // Ignore non-compatible local wallets and fall through to the
+            // public-only signer label below.
+          }
+        }
+
+        return 'External signer';
+      }),
+    [signers, wallets],
+  );
 
   const editKey = useCallback(
     (index: number) => {
@@ -64,6 +89,7 @@ const WalletsAddMuSig2Step2: React.FC = () => {
             <MultipleStepsListItem
               circledText={String(index + 1)}
               leftText={`Vault Key ${index + 1}`}
+              leftTextColor={colors.foregroundColor}
               checked={isChecked}
               dashes={isLast ? MultipleStepsListItemDashType.Top : MultipleStepsListItemDashType.TopAndBottom}
               button={
@@ -78,7 +104,8 @@ const WalletsAddMuSig2Step2: React.FC = () => {
               rightButton={
                 isChecked
                   ? {
-                      text: 'Edit',
+                      text: signerLabels[index] || 'Signer added',
+                      textColor: colors.successColor,
                       onPress: () => editKey(index),
                     }
                   : undefined
