@@ -150,6 +150,11 @@ const MuSig2VaultKey: React.FC = () => {
       await wallet.generate();
       const expression = taprootWalletToMuSig2KeyExpression(wallet);
       await addAndSaveWallet(wallet);
+
+      // A newly generated wallet is already the signer for this exact Vault
+      // Key slot. Save the assignment before showing its seed backup so the
+      // parent list is ready as soon as the user finishes the backup step.
+      onSave(expression);
       setSelectedLocalWalletID(wallet.getID());
       setInput(expression);
       setUsePassphrase(false);
@@ -164,7 +169,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, keyIndex, navigation, walletLabel]);
+  }, [addAndSaveWallet, keyIndex, navigation, onSave, walletLabel]);
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingTaprootWallets.length === 0) {
@@ -186,16 +191,15 @@ const MuSig2VaultKey: React.FC = () => {
         const wallet = existingTaprootWallets[buttonIndex];
         if (!wallet) return;
         try {
-          setSelectedLocalWalletID(wallet.getID());
-          setInput(taprootWalletToMuSig2KeyExpression(wallet));
-          setUsePassphrase(false);
-          setPassphrase('');
+          const expression = taprootWalletToMuSig2KeyExpression(wallet);
+          onSave(expression);
+          navigation.goBack();
         } catch (error: any) {
           presentAlert({ title: 'Taproot signer wallet', message: error?.message ?? String(error) });
         }
       },
     );
-  }, [existingTaprootWallets]);
+  }, [existingTaprootWallets, navigation, onSave]);
 
   const handleImportedText = useCallback((text: string) => {
     setSelectedLocalWalletID(undefined);
