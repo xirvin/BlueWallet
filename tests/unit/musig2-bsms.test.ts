@@ -11,6 +11,14 @@ tr(${EXPECTED_KEY_EXPRESSION}/*)#60gtkx8s
 No path restrictions
 bc1pp2hgkzf0hw7wug5e8vhwr828wg6ynqxwyz5d9rjc2ze8d99su2qq8dty34`;
 
+const PROVIDED_XPUB =
+  'xpub6BfAYP9UKRSNBR1eRzzqoZRXNjxKDswmqTEnFGquHLagyfdxJ3v63eMkpyxu9ZuKbw6VLqRnwwQreqG1EP5n7cu9D4u4z9ffZym57ML3VHr';
+const PROVIDED_KEY_EXPRESSION = `[32b14325/86'/0'/0']${PROVIDED_XPUB}`;
+const PROVIDED_BSMS = `BSMS 1.0
+tr(${PROVIDED_KEY_EXPRESSION}/*)#d69tpnqj
+No path restrictions
+bc1p4kxqrdy8zgz400ukce5vazr0d6qrunzeuacv3pxke3e9dznwcceqv3j4uh`;
+
 describe('MuSig2 Nunchuk BSMS import', () => {
   it('extracts a signer key expression from the complete Nunchuk Mobile BSMS export', () => {
     assert.strictEqual(normalizeMuSig2SignerInput(NUNCHUK_BSMS), EXPECTED_KEY_EXPRESSION);
@@ -29,6 +37,11 @@ describe('MuSig2 Nunchuk BSMS import', () => {
   it('accepts a repeated BSMS export pasted into the universal signer field', () => {
     const repeated = `${NUNCHUK_BSMS}${NUNCHUK_BSMS}`;
     assert.strictEqual(normalizeMuSig2SignerInput(repeated), EXPECTED_KEY_EXPRESSION);
+  });
+
+  it('accepts the provided complete BIP86 BSMS signer export', () => {
+    assert.strictEqual(normalizeMuSig2SignerInput(PROVIDED_BSMS), PROVIDED_KEY_EXPRESSION);
+    assert.strictEqual(normalizeMuSig2SignerInput(`${PROVIDED_BSMS}${PROVIDED_BSMS}`), PROVIDED_KEY_EXPRESSION);
   });
 
   it('accepts compatible public signer JSON using xpub, fingerprint and path', () => {
