@@ -20,6 +20,21 @@ const WalletsAddMultisigVaultKeySheet = () => {
 
   const words = useMemo(() => seed.split(' '), [seed]);
 
+  const handleDone = () => {
+    const routes = navigation.getState().routes;
+    const previousRoute = routes[routes.length - 2];
+
+    // MuSig2 creates and assigns the signer before opening this backup sheet.
+    // Finish by returning directly to the parent key list so the user sees
+    // the completed Vault Key slot and every remaining slot that needs a key.
+    if (previousRoute?.name === 'MuSig2VaultKey') {
+      navigation.pop(2);
+      return;
+    }
+
+    navigation.goBack();
+  };
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.elevated }]} edges={['bottom', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -42,7 +57,7 @@ const WalletsAddMultisigVaultKeySheet = () => {
         </View>
       </ScrollView>
       <View style={styles.footer}>
-        <Button testID="VaultKeyDone" title={loc.send.success_done} onPress={() => navigation.goBack()} />
+        <Button testID="VaultKeyDone" title={loc.send.success_done} onPress={handleDone} />
       </View>
     </SafeAreaView>
   );
