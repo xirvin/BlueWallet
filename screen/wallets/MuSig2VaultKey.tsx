@@ -47,12 +47,14 @@ const MuSig2VaultKey: React.FC = () => {
   const navigation = useNavigation<NavigationProps>();
   const route = useRoute<RouteProps>();
   const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned } = route.params;
+  const saveSigner = onSave as (keyExpression: string, label?: string) => void;
   const { addAndSaveWallet, wallets } = useStorage();
   const [input, setInput] = useState(initialValue);
   const [usePassphrase, setUsePassphrase] = useState(false);
   const [passphrase, setPassphrase] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedLocalWalletID, setSelectedLocalWalletID] = useState<string>();
+  const [manualWalletLabel, setManualWalletLabel] = useState('');
   const [manualFingerprint, setManualFingerprint] = useState('');
   const [manualDerivationPath, setManualDerivationPath] = useState(MUSIG2_SIGNER_DERIVATION);
   const [manualXpub, setManualXpub] = useState('');
@@ -141,10 +143,10 @@ const MuSig2VaultKey: React.FC = () => {
   const assignPublicExpression = useCallback(
     (expression: string) => {
       const normalized = normalizeMuSig2VaultSigner(expression);
-      onSave(normalized.keyExpression);
+      saveSigner(normalized.keyExpression);
       navigation.goBack();
     },
-    [navigation, onSave],
+    [navigation, saveSigner],
   );
 
   const assignManualSigner = useCallback(() => {
@@ -153,9 +155,10 @@ const MuSig2VaultKey: React.FC = () => {
       return;
     }
 
-    onSave(manualValidation.preview.keyExpression);
+    const friendlyLabel = manualWalletLabel.trim() || `Signer ${manualValidation.preview.fingerprint.toUpperCase()}`;
+    saveSigner(manualValidation.preview.keyExpression, friendlyLabel);
     navigation.goBack();
-  }, [keyIndex, manualValidation, navigation, onSave]);
+  }, [keyIndex, manualValidation, manualWalletLabel, navigation, saveSigner]);
 
   const useInput = useCallback(async () => {
     setIsLoading(true);
@@ -172,7 +175,7 @@ const MuSig2VaultKey: React.FC = () => {
           await addAndSaveWallet(wallet);
         }
 
-        onSave(expression);
+        saveSigner(expression, wallet.getLabel());
         navigation.goBack();
         return;
       }
@@ -183,7 +186,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, onSave, passphrase, usePassphrase, walletLabel, wallets]);
+  }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, passphrase, saveSigner, usePassphrase, walletLabel, wallets]);
 
   const createNewTaprootKey = useCallback(async () => {
     const defaultLabel = `${walletLabel} · Vault Key ${keyIndex}`;
@@ -213,7 +216,7 @@ const MuSig2VaultKey: React.FC = () => {
       // A newly generated wallet is already the signer for this exact Vault
       // Key slot. Save the assignment before showing its seed backup so the
       // parent list is ready as soon as the user finishes the backup step.
-      onSave(expression);
+      saveSigner(expression, signerWalletLabel);
       setSelectedLocalWalletID(wallet.getID());
       setInput(expression);
       setUsePassphrase(false);
@@ -228,7 +231,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, keyIndex, navigation, onSave, walletLabel]);
+  }, [addAndSaveWallet, keyIndex, navigation, saveSigner, walletLabel]);
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingTaprootWallets.length === 0) {
@@ -251,14 +254,14 @@ const MuSig2VaultKey: React.FC = () => {
         if (!wallet) return;
         try {
           const expression = taprootWalletToMuSig2KeyExpression(wallet);
-          onSave(expression);
+          saveSigner(expression, wallet.getLabel());
           navigation.goBack();
         } catch (error: any) {
           presentAlert({ title: 'Taproot signer wallet', message: error?.message ?? String(error) });
         }
       },
     );
-  }, [existingTaprootWallets, navigation, onSave]);
+  }, [existingTaprootWallets, navigation, saveSigner]);
 
   const handleImportedText = useCallback((text: string) => {
     setSelectedLocalWalletID(undefined);
@@ -313,6 +316,18 @@ const MuSig2VaultKey: React.FC = () => {
         Type the public BIP86 account information from a hardware or external wallet. The seed/private key is not needed on the coordinator.
       </BlueText>
 
+      <BlueFormLabel>Wallet name</BlueFormLabel>
+      <TextInput
+        testID="MuSig2ManualWalletLabel"
+        value={manualWalletLabel}
+        onChangeText={setManualWalletLabel}
+        autoCapitalize="words"
+        autoCorrect={false}
+        placeholder={`Signer for Vault Key ${keyIndex}`}
+        placeholderTextColor={colors.alternativeTextColor}
+        style={manualInputStyle}
+      />
+
       <BlueFormLabel>Master fingerprint</BlueFormLabel>
       <TextInput
         testID="MuSig2ManualFingerprint"
@@ -358,7 +373,7 @@ const MuSig2VaultKey: React.FC = () => {
           <BlueText selectable>Derivation: {manualValidation.preview.derivationPath}</BlueText>
         </View>
       ) : manualValidation.error ? (
-        <BlueText style={[styles.manualValidation, { color: colors.alternativeTextColor }]}>{manualValidation.error}</BlueText>
+        <BlueText style={{ color: colors.alternativeTextColor, marginBottom: 4 }}>{manualValidation.error}</BlueText>
       ) : null}
 
       <BlueSpacing10 />
