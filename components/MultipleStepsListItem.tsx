@@ -32,6 +32,7 @@ interface MultipleStepsListItemProps {
   circledText?: string;
   checked?: boolean;
   leftText?: string;
+  leftTextColor?: string;
   showActivityIndicator?: boolean;
   isActionSheet?: boolean;
   actionSheetOptions?: ActionSheetOptions;
@@ -47,6 +48,7 @@ interface MultipleStepsListItemProps {
   };
   rightButton?: {
     text?: string;
+    textColor?: string;
     onPress?: () => void;
     disabled?: boolean;
     showActivityIndicator?: boolean;
@@ -168,7 +170,9 @@ const MultipleStepsListItem = (props: MultipleStepsListItemProps) => {
           ) : null}
           {!showActivityIndicator && leftText.length > 0 && (
             <View style={styles.vaultKeyTextWrapper}>
-              <Text style={[styles.vaultKeyText, stylesHook.vaultKeyText]}>{leftText}</Text>
+              <Text style={[styles.vaultKeyText, stylesHook.vaultKeyText, props.leftTextColor ? { color: props.leftTextColor } : null]}>
+                {leftText}
+              </Text>
             </View>
           )}
           {showActivityIndicator && <ActivityIndicator style={styles.activityIndicator} />}
@@ -235,7 +239,16 @@ const MultipleStepsListItem = (props: MultipleStepsListItemProps) => {
               {props.rightButton.showActivityIndicator ? (
                 <ActivityIndicator />
               ) : (
-                <Text style={[styles.provideKeyButtonText, stylesHook.provideKeyButtonText]}>{props.rightButton.text}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.provideKeyButtonText,
+                    stylesHook.provideKeyButtonText,
+                    props.rightButton.textColor ? { color: props.rightButton.textColor } : null,
+                  ]}
+                >
+                  {props.rightButton.text}
+                </Text>
               )}
             </Pressable>
           </View>
@@ -299,6 +312,7 @@ const styles = StyleSheet.create({
   rightButtonContainer: {
     alignContent: 'center',
     justifyContent: 'center',
+    maxWidth: '45%',
   },
   activityIndicator: {
     marginLeft: 40,
