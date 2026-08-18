@@ -391,6 +391,11 @@ const WalletDetails: React.FC = () => {
       xpub: wallet.getXpub(),
     });
 
+  const navigateToMuSig2DescriptorExport = () =>
+    navigate('MuSig2DescriptorExport', {
+      walletID,
+    });
+
   const navigateToSignVerify = () =>
     navigate('SignVerifyRoot', {
       screen: 'SignVerify',
@@ -721,6 +726,16 @@ const WalletDetails: React.FC = () => {
               {wallet.allowXpub && wallet.allowXpub() && (
                 <SettingsListItem onPress={navigateToXPub} title={loc.wallets.details_show_xpub} testID="XpubButton" bottomDivider />
               )}
+              {wallet.type === HDTaprootMuSig2Wallet.type &&
+                (wallet as HDTaprootMuSig2Wallet).hasCompleteExtendedParticipantMetadata() && (
+                  <SettingsListItem
+                    onPress={navigateToMuSig2DescriptorExport}
+                    title="Export wallet descriptor"
+                    testID="MuSig2DescriptorExportButton"
+                    chevron
+                    bottomDivider={!!(wallet.allowSignVerifyMessage && wallet.allowSignVerifyMessage())}
+                  />
+                )}
               {wallet.allowSignVerifyMessage && wallet.allowSignVerifyMessage() && (
                 <SettingsListItem
                   onPress={navigateToSignVerify}
