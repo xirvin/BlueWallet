@@ -26,6 +26,20 @@ describe('MuSig2 Nunchuk BSMS import', () => {
     assert.strictEqual(normalizeMuSig2SignerInput(flattened), EXPECTED_KEY_EXPRESSION);
   });
 
+  it('accepts compatible public signer JSON using xpub, fingerprint and path', () => {
+    const json = JSON.stringify({
+      xpub: NUNCHUK_XPUB,
+      xfp: '52c4ead8',
+      path: "m/86'/0'/0'",
+    });
+    assert.strictEqual(normalizeMuSig2SignerInput(json), EXPECTED_KEY_EXPRESSION);
+  });
+
+  it('accepts a JSON wrapper around the single-key Taproot descriptor', () => {
+    const descriptor = NUNCHUK_BSMS.split('\n')[1];
+    assert.strictEqual(normalizeMuSig2SignerInput(JSON.stringify({ name: 'Signer 1', desc: descriptor })), EXPECTED_KEY_EXPRESSION);
+  });
+
   it('rejects a Nunchuk BSMS descriptor with a bad checksum', () => {
     assert.throws(
       () => normalizeMuSig2SignerInput(NUNCHUK_BSMS.replace('#60gtkx8s', '#00000000')),
