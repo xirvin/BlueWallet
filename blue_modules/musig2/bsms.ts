@@ -17,6 +17,40 @@ function normalizeJsonFingerprint(value: unknown): string | undefined {
   return /^[0-9a-fA-F]{8}$/.test(normalized) ? normalized : undefined;
 }
 
+function normalizeColdcardElectrumFingerprint(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff) {
+    const bigEndianHex = value.toString(16).padStart(8, '0');
+    return bigEndianHex.match(/../g)?.reverse().join('');
+  }
+
+  // Some external exporters may serialize an already display-formatted XFP as
+  // an eight-character hex string. Preserve that byte order rather than
+  // applying Electrum's integer representation a second time.
+  return normalizeJsonFingerprint(value);
+}
+
+function normalizeJsonPath(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const path = value.trim().replace(/[hH]/g, "'");
+  if (path !== 'm' && !path.startsWith('m/')) return undefined;
+  return path;
+}
+
+function keyExpressionFromElectrumColdcardJson(record: Record<string, unknown>): string | undefined {
+  const keystoreValue = record.keystore;
+  if (!keystoreValue || typeof keystoreValue !== 'object' || Array.isArray(keystoreValue)) return undefined;
+
+  const keystore = keystoreValue as Record<string, unknown>;
+  if (keystore.ckcc_xfp === undefined || typeof keystore.xpub !== 'string' || !keystore.xpub.trim()) return undefined;
+
+  const fingerprint = normalizeColdcardElectrumFingerprint(keystore.ckcc_xfp);
+  const path = normalizeJsonPath(keystore.derivation ?? keystore.derivationPath ?? keystore.path);
+  if (!fingerprint || !path) return undefined;
+
+  const originPath = path === 'm' ? '' : `/${path.slice(2)}`;
+  return `[${fingerprint}${originPath}]${keystore.xpub.trim()}`;
+}
+
 function keyExpressionFromJson(value: unknown): string | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
 
@@ -27,13 +61,14 @@ function keyExpressionFromJson(value: unknown): string | undefined {
     }
   }
 
+  const electrumColdcard = keyExpressionFromElectrumColdcardJson(record);
+  if (electrumColdcard) return electrumColdcard;
+
   if (typeof record.xpub !== 'string' || !record.xpub.trim()) return undefined;
   const fingerprint = normalizeJsonFingerprint(record.xfp ?? record.fingerprint ?? record.masterFingerprint);
-  const pathValue = record.path ?? record.derivationPath;
-  if (!fingerprint || typeof pathValue !== 'string' || !pathValue.trim()) return undefined;
+  const path = normalizeJsonPath(record.path ?? record.derivationPath);
+  if (!fingerprint || !path) return undefined;
 
-  const path = pathValue.trim().replace(/[hH]/g, "'");
-  if (path !== 'm' && !path.startsWith('m/')) return undefined;
   const originPath = path === 'm' ? '' : `/${path.slice(2)}`;
   return `[${fingerprint}${originPath}]${record.xpub.trim()}`;
 }
@@ -52,9 +87,10 @@ function keyExpressionFromJson(value: unknown): string | undefined {
  * verified.
  *
  * Compatible JSON wrappers are also accepted. They may contain a single-key
- * descriptor (`desc`/`descriptor`), a `keyExpression`, a `bsms` string, or the
- * public tuple `{ xpub, xfp|fingerprint|masterFingerprint, path|derivationPath }`.
- * Only public signer metadata is returned from this helper.
+ * descriptor (`desc`/`descriptor`), a `keyExpression`, a `bsms` string, the
+ * public tuple `{ xpub, xfp|fingerprint|masterFingerprint, path|derivationPath }`,
+ * or an Electrum COLDCARD hardware keystore containing `ckcc_xfp`, `xpub`, and
+ * `derivation`. Only public signer metadata is returned from this helper.
  */
 export function normalizeMuSig2SignerInput(input: string): string {
   const trimmed = input.trim();
