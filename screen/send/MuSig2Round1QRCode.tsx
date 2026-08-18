@@ -260,8 +260,9 @@ const MuSig2Round1QRCode: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const nonceStates = localNonceStates.current;
     return () => {
-      discardLocalNonceStates(localNonceStates.current);
+      discardLocalNonceStates(nonceStates);
     };
   }, []);
 
