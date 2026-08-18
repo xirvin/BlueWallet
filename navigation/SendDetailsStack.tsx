@@ -119,7 +119,7 @@ const SendDetailsStack = () => {
           },
           withRouteParamHeaderOptions({ headerRight: true }),
         )(theme)}
-        initialParams={{ isEditable: true, feeUnit: BitcoinUnit.BTC, amountUnit: BitcoinUnit.BTC }} // Correctly typed now
+        initialParams={{ isEditable: true, feeUnit: BitcoinUnit.BTC, amountUnit: BitcoinUnit.BTC }}
       />
       <Stack.Screen
         name="SelectFee"
@@ -165,7 +165,7 @@ const SendDetailsStack = () => {
       <Stack.Screen
         name="MuSig2Round1QRCode"
         component={MuSig2Round1QRCodeComponent}
-        options={navigationStyle({ title: 'MuSig2 Round 1', gestureEnabled: false, fullScreenGestureEnabled: false })(theme)}
+        options={navigationStyle({ title: 'MuSig2 Signing', gestureEnabled: false, fullScreenGestureEnabled: false })(theme)}
       />
       <Stack.Screen
         name="Success"
