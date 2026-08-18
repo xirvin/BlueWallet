@@ -131,7 +131,7 @@ const MuSig2VaultKey: React.FC = () => {
     let signerWalletLabel = defaultLabel;
 
     try {
-      const requestedLabel = await prompt('Name Taproot signer wallet', 'How would you like to name this wallet?', {
+      const requestedLabel = await prompt('How would you like to name this wallet?', 'Taproot signer wallet', {
         type: 'plain-text',
         defaultValue: defaultLabel,
         continueButtonText: 'Create',
