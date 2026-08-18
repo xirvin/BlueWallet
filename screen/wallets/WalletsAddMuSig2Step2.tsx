@@ -37,7 +37,7 @@ const WalletsAddMuSig2Step2: React.FC = () => {
           if (wallet.type !== HDTaprootWallet.type) continue;
           try {
             if (taprootWalletToMuSig2KeyExpression(wallet as HDTaprootWallet) === expression) {
-              return wallet.getLabel();
+              return `${wallet.getLabel()} · On this device`;
             }
           } catch {
             // Ignore non-compatible local wallets and fall through to the
