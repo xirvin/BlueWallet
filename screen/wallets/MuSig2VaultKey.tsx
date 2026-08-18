@@ -42,6 +42,7 @@ const MuSig2VaultKey: React.FC = () => {
   const navigation = useNavigation<NavigationProps>();
   const route = useRoute<RouteProps>();
   const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned } = route.params;
+  const saveSigner = onSave as (keyExpression: string, label?: string) => void;
   const { addAndSaveWallet, wallets } = useStorage();
   const [input, setInput] = useState(initialValue);
   const [usePassphrase, setUsePassphrase] = useState(false);
@@ -113,10 +114,10 @@ const MuSig2VaultKey: React.FC = () => {
     (expression: string) => {
       const normalized = normalizeMuSig2VaultSigner(expression);
       const signerLabel = `Signer ${normalized.participant.masterFingerprint?.toUpperCase() ?? keyIndex}`;
-      onSave(normalized.keyExpression, signerLabel);
+      saveSigner(normalized.keyExpression, signerLabel);
       navigation.goBack();
     },
-    [keyIndex, navigation, onSave],
+    [keyIndex, navigation, saveSigner],
   );
 
   const useInput = useCallback(async () => {
@@ -148,7 +149,7 @@ const MuSig2VaultKey: React.FC = () => {
           await addAndSaveWallet(wallet);
         }
 
-        onSave(expression, signerWalletLabel);
+        saveSigner(expression, signerWalletLabel);
         navigation.goBack();
         return;
       }
@@ -159,7 +160,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, onSave, passphrase, preview, usePassphrase, walletLabel, wallets]);
+  }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, passphrase, preview, saveSigner, usePassphrase, walletLabel, wallets]);
 
   const createNewTaprootKey = useCallback(async () => {
     const defaultLabel = `${walletLabel} · Vault Key ${keyIndex}`;
@@ -186,7 +187,7 @@ const MuSig2VaultKey: React.FC = () => {
       const expression = taprootWalletToMuSig2KeyExpression(wallet);
       await addAndSaveWallet(wallet);
 
-      onSave(expression, signerWalletLabel);
+      saveSigner(expression, signerWalletLabel);
       setInput(expression);
       setUsePassphrase(false);
       setPassphrase('');
@@ -200,7 +201,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, keyIndex, navigation, onSave, walletLabel]);
+  }, [addAndSaveWallet, keyIndex, navigation, saveSigner, walletLabel]);
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingTaprootWallets.length === 0) {
@@ -223,14 +224,14 @@ const MuSig2VaultKey: React.FC = () => {
         if (!wallet) return;
         try {
           const expression = taprootWalletToMuSig2KeyExpression(wallet);
-          onSave(expression, wallet.getLabel());
+          saveSigner(expression, wallet.getLabel());
           navigation.goBack();
         } catch (error: any) {
           presentAlert({ title: 'Taproot signer wallet', message: error?.message ?? String(error) });
         }
       },
     );
-  }, [existingTaprootWallets, navigation, onSave]);
+  }, [existingTaprootWallets, navigation, saveSigner]);
 
   const handleImportedText = useCallback((text: string) => {
     setInput(text);
