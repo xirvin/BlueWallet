@@ -18,7 +18,7 @@ export const MUSIG2_SIGNER_DERIVATION = "m/86'/0'/0'";
 export const MUSIG2_WALLET_TYPE_LABEL = 'Taproot (P2TR-MuSig2)';
 
 export const MUSIG2_SIGNER_INPUT_PLACEHOLDER =
-  "BSMS 1.0\ntr([f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey/*)#checksum\nNo path restrictions\nbc1p...\n\nor\n[f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey";
+  "12 or 24 BIP39 seed words\n\nor\nBSMS 1.0\ntr([f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey/*)#checksum\nNo path restrictions\nbc1p...\n\nor\n[f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey\n\nor compatible signer JSON";
 
 export function assertMuSig2SignerCount(count: number): number {
   if (!Number.isInteger(count) || count < MUSIG2_MIN_SIGNERS || count > MUSIG2_MAX_SIGNERS) {
@@ -62,6 +62,33 @@ export function validateMuSig2VaultSigners(inputs: string[], expectedCount = inp
   }
 
   return normalized.map(item => item.keyExpression);
+}
+
+/**
+ * Builds a normal BlueWallet BIP86 Taproot wallet for a local MuSig2 signer.
+ * The returned wallet remains a regular single-sig Taproot wallet. The MuSig2
+ * vault receives only the public account key expression derived from it.
+ */
+export function createMuSig2TaprootSignerWallet(mnemonic: string, passphrase = ''): HDTaprootWallet {
+  const wallet = new HDTaprootWallet();
+  wallet.setSecret(mnemonic);
+  if (!wallet.validateMnemonic()) {
+    throw new Error('MuSig2 local signer must use a valid BIP39 seed phrase');
+  }
+  if (passphrase) wallet.setPassphrase(passphrase);
+  if (wallet.getDerivationPath() !== MUSIG2_SIGNER_DERIVATION) {
+    throw new Error(`Taproot signer wallet must use ${MUSIG2_SIGNER_DERIVATION}`);
+  }
+  return wallet;
+}
+
+export function isMuSig2TaprootSignerMnemonic(input: string): boolean {
+  try {
+    createMuSig2TaprootSignerWallet(input);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function taprootWalletToMuSig2KeyExpression(wallet: HDTaprootWallet): string {
