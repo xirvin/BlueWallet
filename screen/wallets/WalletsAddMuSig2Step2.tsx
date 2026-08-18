@@ -6,7 +6,10 @@ import { FlatList, StyleSheet, View } from 'react-native';
 import { validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
 import Button from '../../components/Button';
-import MultipleStepsListItem, { MultipleStepsListItemDashType } from '../../components/MultipleStepsListItem';
+import MultipleStepsListItem, {
+  MultipleStepsListItemButtonType,
+  MultipleStepsListItemDashType,
+} from '../../components/MultipleStepsListItem';
 import presentAlert from '../../components/Alert';
 import { useTheme } from '../../components/themes';
 import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
@@ -63,10 +66,23 @@ const WalletsAddMuSig2Step2: React.FC = () => {
               leftText={`Vault Key ${index + 1}`}
               checked={isChecked}
               dashes={isLast ? MultipleStepsListItemDashType.Top : MultipleStepsListItemDashType.TopAndBottom}
-              rightButton={{
-                text: isChecked ? 'Edit' : 'Add',
-                onPress: () => editKey(index),
-              }}
+              button={
+                isChecked
+                  ? undefined
+                  : {
+                      text: 'Add',
+                      onPress: () => editKey(index),
+                      buttonType: MultipleStepsListItemButtonType.Full,
+                    }
+              }
+              rightButton={
+                isChecked
+                  ? {
+                      text: 'Edit',
+                      onPress: () => editKey(index),
+                    }
+                  : undefined
+              }
             />
           );
         }}
