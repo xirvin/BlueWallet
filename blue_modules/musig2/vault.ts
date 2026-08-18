@@ -18,7 +18,7 @@ export const MUSIG2_SIGNER_DERIVATION = "m/86'/0'/0'";
 export const MUSIG2_WALLET_TYPE_LABEL = 'Taproot (P2TR-MuSig2)';
 
 export const MUSIG2_SIGNER_INPUT_PLACEHOLDER =
-  "12 or 24 BIP39 seed words\n\nor\nBSMS 1.0\ntr([f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey/*)#checksum\nNo path restrictions\nbc1p...\n\nor\n[f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey\n\nor compatible signer JSON";
+  "Paste or type signer wallet information here\n\n12 or 24 BIP39 seed words\n\nor\n\nBSMS 1.0\ntr([f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey/*)#checksum\nNo path restrictions\nbc1p...\n\nor\n\n[f23a9cde/86'/0'/0']xpub6ExampleTaprootSignerKey\n\nor compatible signer JSON";
 
 export function assertMuSig2SignerCount(count: number): number {
   if (!Number.isInteger(count) || count < MUSIG2_MIN_SIGNERS || count > MUSIG2_MAX_SIGNERS) {
