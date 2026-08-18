@@ -37,44 +37,21 @@ type SignerPreview = {
   receiveAddress?: string;
 };
 
-type ManualSignerValidation = {
-  preview?: SignerPreview;
-  error?: string;
-};
-
 const MuSig2VaultKey: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const route = useRoute<RouteProps>();
   const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned } = route.params;
-  const saveSigner = onSave as (keyExpression: string, label?: string) => void;
   const { addAndSaveWallet, wallets } = useStorage();
   const [input, setInput] = useState(initialValue);
   const [usePassphrase, setUsePassphrase] = useState(false);
   const [passphrase, setPassphrase] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedLocalWalletID, setSelectedLocalWalletID] = useState<string>();
-  const [manualWalletLabel, setManualWalletLabel] = useState('');
-  const [manualFingerprint, setManualFingerprint] = useState('');
-  const [manualDerivationPath, setManualDerivationPath] = useState(MUSIG2_SIGNER_DERIVATION);
-  const [manualXpub, setManualXpub] = useState('');
 
   const existingTaprootWallets = useMemo(
     () => wallets.filter(wallet => wallet.type === HDTaprootWallet.type) as HDTaprootWallet[],
     [wallets],
   );
-
-  useEffect(() => {
-    if (!initialValue.trim()) return;
-    try {
-      const normalized = normalizeMuSig2VaultSigner(initialValue);
-      setManualFingerprint(normalized.participant.masterFingerprint ?? '');
-      setManualDerivationPath(normalized.participant.derivationPath ?? MUSIG2_SIGNER_DERIVATION);
-      setManualXpub(normalized.participant.xpub ?? '');
-    } catch {
-      // The raw import area still handles seeds and other supported formats.
-    }
-  }, [initialValue]);
 
   const preview = useMemo<SignerPreview | undefined>(() => {
     if (!input.trim()) return undefined;
@@ -111,71 +88,67 @@ const MuSig2VaultKey: React.FC = () => {
     }
   }, [input, passphrase, usePassphrase]);
 
-  const manualValidation = useMemo<ManualSignerValidation>(() => {
-    const fingerprint = manualFingerprint.trim().replace(/^0x/i, '').toLowerCase();
-    const derivationPath = manualDerivationPath.trim();
-    const xpub = manualXpub.trim();
-
-    if (!fingerprint && !xpub) return {};
-    if (!fingerprint || !derivationPath || !xpub) {
-      return { error: 'Enter the master fingerprint, derivation path, and account XPUB.' };
-    }
-
-    const origin = derivationPath.startsWith('m/') ? derivationPath.slice(2) : derivationPath;
-    const expression = `[${fingerprint}/${origin}]${xpub}`;
-
+  const validationError = useMemo(() => {
+    if (!input.trim() || preview || isMuSig2TaprootSignerMnemonic(input)) return undefined;
     try {
-      const normalized = normalizeMuSig2VaultSigner(expression);
-      return {
-        preview: {
-          kind: 'public',
-          keyExpression: normalized.keyExpression,
-          fingerprint: normalized.participant.masterFingerprint!,
-          derivationPath: normalized.participant.derivationPath!,
-          xpub: normalized.participant.xpub!,
-        },
-      };
+      normalizeMuSig2VaultSigner(input);
+      return undefined;
     } catch (error) {
-      return { error: error instanceof Error ? error.message : String(error) };
+      return error instanceof Error ? error.message : String(error);
     }
-  }, [manualDerivationPath, manualFingerprint, manualXpub]);
+  }, [input, preview]);
+
+  const previewIsKnownLocalWallet = useMemo(() => {
+    if (!preview) return false;
+    return existingTaprootWallets.some(wallet => {
+      try {
+        return taprootWalletToMuSig2KeyExpression(wallet) === preview.keyExpression;
+      } catch {
+        return false;
+      }
+    });
+  }, [existingTaprootWallets, preview]);
 
   const assignPublicExpression = useCallback(
     (expression: string) => {
       const normalized = normalizeMuSig2VaultSigner(expression);
-      saveSigner(normalized.keyExpression);
+      const signerLabel = `Signer ${normalized.participant.masterFingerprint?.toUpperCase() ?? keyIndex}`;
+      onSave(normalized.keyExpression, signerLabel);
       navigation.goBack();
     },
-    [navigation, saveSigner],
+    [keyIndex, navigation, onSave],
   );
 
-  const assignManualSigner = useCallback(() => {
-    if (!manualValidation.preview) {
-      presentAlert({ title: `Vault Key ${keyIndex}`, message: manualValidation.error ?? 'Enter valid Taproot signer wallet information.' });
-      return;
-    }
-
-    const friendlyLabel = manualWalletLabel.trim() || `Signer ${manualValidation.preview.fingerprint.toUpperCase()}`;
-    saveSigner(manualValidation.preview.keyExpression, friendlyLabel);
-    navigation.goBack();
-  }, [keyIndex, manualValidation, manualWalletLabel, navigation, saveSigner]);
-
   const useInput = useCallback(async () => {
+    if (!preview) return;
+
     setIsLoading(true);
     try {
       if (isMuSig2TaprootSignerMnemonic(input)) {
         const wallet = createMuSig2TaprootSignerWallet(input, usePassphrase ? passphrase : '');
-        wallet.setLabel(`${walletLabel} · Vault Key ${keyIndex}`);
+        const defaultLabel = `${walletLabel} · Vault Key ${keyIndex}`;
+        let signerWalletLabel = defaultLabel;
+
+        try {
+          const requestedLabel = await prompt('How would you like to name this wallet?', 'Taproot signer wallet', {
+            type: 'plain-text',
+            defaultValue: defaultLabel,
+            continueButtonText: 'Import',
+          });
+          signerWalletLabel = requestedLabel.trim() || defaultLabel;
+        } catch (error) {
+          if (error instanceof Error && error.message === 'Cancel Pressed') return;
+          throw error;
+        }
+
+        wallet.setLabel(signerWalletLabel);
         const expression = taprootWalletToMuSig2KeyExpression(wallet);
 
-        // Importing a seed deliberately creates a normal local BIP86 Taproot
-        // wallet. If that exact wallet is already present, simply reuse it as
-        // the signer instead of creating a duplicate wallet entry.
         if (!wallets.some(existing => existing.getID() === wallet.getID())) {
           await addAndSaveWallet(wallet);
         }
 
-        saveSigner(expression, wallet.getLabel());
+        onSave(expression, signerWalletLabel);
         navigation.goBack();
         return;
       }
@@ -186,7 +159,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, passphrase, saveSigner, usePassphrase, walletLabel, wallets]);
+  }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, onSave, passphrase, preview, usePassphrase, walletLabel, wallets]);
 
   const createNewTaprootKey = useCallback(async () => {
     const defaultLabel = `${walletLabel} · Vault Key ${keyIndex}`;
@@ -213,11 +186,7 @@ const MuSig2VaultKey: React.FC = () => {
       const expression = taprootWalletToMuSig2KeyExpression(wallet);
       await addAndSaveWallet(wallet);
 
-      // A newly generated wallet is already the signer for this exact Vault
-      // Key slot. Save the assignment before showing its seed backup so the
-      // parent list is ready as soon as the user finishes the backup step.
-      saveSigner(expression, signerWalletLabel);
-      setSelectedLocalWalletID(wallet.getID());
+      onSave(expression, signerWalletLabel);
       setInput(expression);
       setUsePassphrase(false);
       setPassphrase('');
@@ -231,7 +200,7 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, keyIndex, navigation, saveSigner, walletLabel]);
+  }, [addAndSaveWallet, keyIndex, navigation, onSave, walletLabel]);
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingTaprootWallets.length === 0) {
@@ -254,17 +223,16 @@ const MuSig2VaultKey: React.FC = () => {
         if (!wallet) return;
         try {
           const expression = taprootWalletToMuSig2KeyExpression(wallet);
-          saveSigner(expression, wallet.getLabel());
+          onSave(expression, wallet.getLabel());
           navigation.goBack();
         } catch (error: any) {
           presentAlert({ title: 'Taproot signer wallet', message: error?.message ?? String(error) });
         }
       },
     );
-  }, [existingTaprootWallets, navigation, saveSigner]);
+  }, [existingTaprootWallets, navigation, onSave]);
 
   const handleImportedText = useCallback((text: string) => {
-    setSelectedLocalWalletID(undefined);
     setInput(text);
   }, []);
 
@@ -275,12 +243,6 @@ const MuSig2VaultKey: React.FC = () => {
     navigation.setParams({ onBarScanned: undefined });
   }, [handleImportedText, navigation, onBarScanned]);
 
-  const previewIsKnownLocalWallet = Boolean(selectedLocalWalletID && wallets.some(wallet => wallet.getID() === selectedLocalWalletID));
-  const manualInputStyle = [
-    styles.manualInput,
-    { color: colors.foregroundColor, borderColor: colors.formBorder, backgroundColor: colors.inputBackgroundColor },
-  ];
-
   return (
     <SafeAreaScrollView
       style={{ backgroundColor: colors.elevated }}
@@ -290,12 +252,12 @@ const MuSig2VaultKey: React.FC = () => {
     >
       <BlueText bold style={styles.title}>Vault Key {keyIndex}</BlueText>
       <BlueText style={styles.description}>
-        Every MuSig2 Vault signer uses a standard BIP86 Taproot account at {MUSIG2_SIGNER_DERIVATION}. Create a new signer wallet, reuse an existing Taproot wallet, type its public wallet information, or import a signer export.
+        Assign a BIP86 Taproot signer to this MuSig2 slot. Create one in BlueWallet, choose an existing Taproot wallet, or paste/type the complete signer information below.
       </BlueText>
 
       <BlueText bold style={styles.sectionTitle}>Create or use a local signer wallet</BlueText>
       <BlueText style={styles.sectionDescription}>
-        Local signers are normal BlueWallet HD Taproot wallets with bc1p receive addresses. The vault stores their public BIP86 account key expression.
+        Local signers are normal BlueWallet HD Taproot wallets. The MuSig2 vault stores only their public BIP86 account information.
       </BlueText>
       <Button testID="MuSig2CreateTaprootKey" title="Create new Taproot signer wallet" onPress={createNewTaprootKey} disabled={isLoading} />
       {existingTaprootWallets.length > 0 && (
@@ -311,83 +273,9 @@ const MuSig2VaultKey: React.FC = () => {
       )}
 
       <BlueSpacing20 />
-      <BlueText bold style={styles.sectionTitle}>Enter wallet information manually</BlueText>
+      <BlueText bold style={styles.sectionTitle}>Enter signer wallet information</BlueText>
       <BlueText style={styles.sectionDescription}>
-        Type the public BIP86 account information from a hardware or external wallet. The seed/private key is not needed on the coordinator.
-      </BlueText>
-
-      <BlueFormLabel>Wallet name</BlueFormLabel>
-      <TextInput
-        testID="MuSig2ManualWalletLabel"
-        value={manualWalletLabel}
-        onChangeText={setManualWalletLabel}
-        autoCapitalize="words"
-        autoCorrect={false}
-        placeholder={`Signer for Vault Key ${keyIndex}`}
-        placeholderTextColor={colors.alternativeTextColor}
-        style={manualInputStyle}
-      />
-
-      <BlueFormLabel>Master fingerprint</BlueFormLabel>
-      <TextInput
-        testID="MuSig2ManualFingerprint"
-        value={manualFingerprint}
-        onChangeText={setManualFingerprint}
-        autoCapitalize="characters"
-        autoCorrect={false}
-        maxLength={8}
-        placeholder="F23A9CDE"
-        placeholderTextColor={colors.alternativeTextColor}
-        style={manualInputStyle}
-      />
-
-      <BlueFormLabel>Derivation path</BlueFormLabel>
-      <TextInput
-        testID="MuSig2ManualDerivationPath"
-        value={manualDerivationPath}
-        onChangeText={setManualDerivationPath}
-        autoCapitalize="none"
-        autoCorrect={false}
-        placeholder={MUSIG2_SIGNER_DERIVATION}
-        placeholderTextColor={colors.alternativeTextColor}
-        style={manualInputStyle}
-      />
-
-      <BlueFormLabel>Account XPUB</BlueFormLabel>
-      <TextInput
-        testID="MuSig2ManualXpub"
-        value={manualXpub}
-        onChangeText={setManualXpub}
-        autoCapitalize="none"
-        autoCorrect={false}
-        multiline
-        placeholder="xpub..."
-        placeholderTextColor={colors.alternativeTextColor}
-        style={[manualInputStyle, styles.manualXpubInput]}
-      />
-
-      {manualValidation.preview ? (
-        <View style={styles.manualValidation}>
-          <BlueText bold style={{ color: colors.successColor }}>Valid MuSig2 signer information</BlueText>
-          <BlueText selectable>Fingerprint: {manualValidation.preview.fingerprint}</BlueText>
-          <BlueText selectable>Derivation: {manualValidation.preview.derivationPath}</BlueText>
-        </View>
-      ) : manualValidation.error ? (
-        <BlueText style={{ color: colors.alternativeTextColor, marginBottom: 4 }}>{manualValidation.error}</BlueText>
-      ) : null}
-
-      <BlueSpacing10 />
-      <Button
-        testID="MuSig2AssignManualSigner"
-        title={`Assign to Vault Key ${keyIndex}`}
-        onPress={assignManualSigner}
-        disabled={!manualValidation.preview || isLoading}
-      />
-
-      <BlueSpacing20 />
-      <BlueText bold style={styles.sectionTitle}>Import or paste signer</BlueText>
-      <BlueText style={styles.sectionDescription}>
-        Import a BIP39 seed for a local signer, or public-only signer data from BSMS 1.0, a single-key Taproot descriptor, [fingerprint/path]xpub, or compatible JSON. You can also type or paste the complete signer data below. QR, file, photo, and clipboard imports are supported.
+        Paste or type seed words, a complete BSMS 1.0 export, a Taproot descriptor, [fingerprint/path]xpub, or compatible JSON. QR, file, photo, and clipboard import are also supported.
       </BlueText>
 
       <AddressInputScanButton
@@ -444,9 +332,9 @@ const MuSig2VaultKey: React.FC = () => {
         </View>
       )}
 
-      {preview && (
+      {preview ? (
         <View style={styles.validation}>
-          <BlueText bold>
+          <BlueText bold style={{ color: colors.successColor }}>
             {preview.kind === 'local-seed' || previewIsKnownLocalWallet ? 'Valid local Taproot signer wallet' : 'Valid external Taproot signer'}
           </BlueText>
           <BlueText>Type: Taproot (P2TR / BIP86)</BlueText>
@@ -454,9 +342,10 @@ const MuSig2VaultKey: React.FC = () => {
           <BlueText>Derivation: {preview.derivationPath}</BlueText>
           {preview.receiveAddress && <BlueText selectable>First receive: {preview.receiveAddress}</BlueText>}
           <BlueText selectable numberOfLines={3}>XPUB: {preview.xpub}</BlueText>
-          <BlueText selectable numberOfLines={4}>Vault key: {preview.keyExpression}</BlueText>
         </View>
-      )}
+      ) : validationError ? (
+        <BlueText style={[styles.validationError, { color: colors.alternativeTextColor }]}>{validationError}</BlueText>
+      ) : null}
 
       <BlueSpacing20 />
       {isLoading ? (
@@ -464,7 +353,7 @@ const MuSig2VaultKey: React.FC = () => {
       ) : (
         <Button
           testID="MuSig2UseVaultKey"
-          title={preview?.kind === 'local-seed' ? 'Import Taproot signer wallet' : 'Use this Vault Key'}
+          title={`Assign to Vault Key ${keyIndex}`}
           onPress={useInput}
           disabled={!preview}
         />
@@ -479,12 +368,10 @@ const styles = StyleSheet.create({
   description: { lineHeight: 20, marginBottom: 24 },
   sectionTitle: { fontSize: 17, marginBottom: 6 },
   sectionDescription: { lineHeight: 20, marginBottom: 14 },
-  manualInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, minHeight: 46, marginBottom: 14, fontSize: 15 },
-  manualXpubInput: { minHeight: 80, paddingTop: 12, textAlignVertical: 'top' },
-  manualValidation: { gap: 4, marginBottom: 4 },
-  inputContainer: { minHeight: 210, borderWidth: 1, borderRadius: 8, padding: 12 },
-  input: { minHeight: 185, fontSize: 13, textAlignVertical: 'top' },
+  inputContainer: { minHeight: 300, borderWidth: 1, borderRadius: 8, padding: 12 },
+  input: { minHeight: 276, fontSize: 14, textAlignVertical: 'top' },
   validation: { gap: 4, marginTop: 16 },
+  validationError: { marginTop: 12, lineHeight: 18 },
   passphraseSection: { marginTop: 16 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   passphraseInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, minHeight: 46, marginTop: 10 },
