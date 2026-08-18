@@ -84,7 +84,7 @@ export type SendDetailsStackParamList = {
     memo?: string;
     walletID: string;
     tx: string;
-    targets?: CreateTransactionTarget[]; // needed to know if there were paymentCodes, which turned into addresses in `recipients`
+    targets?: CreateTransactionTarget[];
     recipients: CreateTransactionTarget[];
     satoshiPerByte: number;
     payjoinUrl?: string | null;
@@ -132,6 +132,7 @@ export type SendDetailsStackParamList = {
     walletID: string;
     launchedBy?: string;
     onBarScanned?: string;
+    isDryRun?: boolean;
   };
   Success: {
     fee?: number;
@@ -146,7 +147,7 @@ export type SendDetailsStackParamList = {
     availableWallets?: TWallet[];
     noWalletExplanationText?: string;
     onChainRequireSend?: boolean;
-    selectedWalletID?: string; // Add this parameter to scroll to a specific wallet
+    selectedWalletID?: string;
   };
   CoinControl: {
     walletID: string;
