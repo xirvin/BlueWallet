@@ -26,6 +26,11 @@ describe('MuSig2 Nunchuk BSMS import', () => {
     assert.strictEqual(normalizeMuSig2SignerInput(flattened), EXPECTED_KEY_EXPRESSION);
   });
 
+  it('accepts a repeated BSMS export pasted into the universal signer field', () => {
+    const repeated = `${NUNCHUK_BSMS}${NUNCHUK_BSMS}`;
+    assert.strictEqual(normalizeMuSig2SignerInput(repeated), EXPECTED_KEY_EXPRESSION);
+  });
+
   it('accepts compatible public signer JSON using xpub, fingerprint and path', () => {
     const json = JSON.stringify({
       xpub: NUNCHUK_XPUB,
