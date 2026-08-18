@@ -9,6 +9,7 @@ import {
   MuSig2CoordinatorSessionSummary,
   listMuSig2CoordinatorSessions,
 } from '../blue_modules/musig2/coordinator-session';
+import { createMuSig2DryRun } from '../blue_modules/musig2/dry-run';
 import { getMuSig2NonceProgress } from '../blue_modules/musig2/psbt';
 import { getMuSig2PartialSignatureProgress } from '../blue_modules/musig2/round2';
 import { LightningArkWallet } from '../class/wallets/lightning-ark-wallet';
@@ -21,6 +22,7 @@ import loc, { formatBalance, formatBalanceWithoutSuffix } from '../loc';
 import { BitcoinUnit } from '../models/bitcoinUnits';
 import { FiatUnit } from '../models/fiatUnit';
 import ActionSheet from '../screen/ActionSheet';
+import presentAlert from './Alert';
 import { BlurredBalanceView } from './BlurredBalanceView';
 import ToolTipMenu from './TooltipMenu';
 import { useSettings } from '../hooks/context/useSettings';
@@ -199,6 +201,25 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
     [navigation, wallet],
   );
 
+  const startMuSig2DryRun = useCallback(() => {
+    if (!isMuSig2Vault) return;
+
+    try {
+      const dryRun = createMuSig2DryRun(wallet as HDTaprootMuSig2Wallet);
+      (navigation as any).navigate('SendDetailsRoot', {
+        screen: 'MuSig2Round1QRCode',
+        params: {
+          memo: 'MuSig2 signing test · no BTC',
+          psbtBase64: dryRun.psbt.toBase64(),
+          walletID: wallet.getID(),
+          isDryRun: true,
+        },
+      });
+    } catch (error: any) {
+      presentAlert({ title: 'Could not start MuSig2 test', message: error?.message ?? String(error) });
+    }
+  }, [isMuSig2Vault, navigation, wallet]);
+
   const currentBalance = wallet ? wallet.getBalance() : 0;
   const formattedBalance = useMemo(() => {
     return unit === BitcoinUnit.LOCAL_CURRENCY
@@ -279,6 +300,18 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
           </TouchableOpacity>
         )}
 
+        {isMuSig2Vault && (
+          <TouchableOpacity
+            testID="MuSig2SavedWalletDryRun"
+            accessibilityRole="button"
+            accessibilityLabel="Test MuSig2 signing without bitcoin"
+            style={styles.testSigningButton}
+            onPress={startMuSig2DryRun}
+          >
+            <Text style={styles.testSigningButtonText}>Test MuSig2 signing (no BTC)</Text>
+          </TouchableOpacity>
+        )}
+
         {isMuSig2Vault && muSig2Sessions.length > 0 && (
           <View style={styles.signingSessions} testID="MuSig2SigningSessions">
             <Text style={styles.signingSessionsTitle}>Signing sessions</Text>
@@ -339,6 +372,16 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start', justifyContent: 'center', alignItems: 'center',
   },
   manageFundsButtonText: { fontWeight: '500', fontSize: 14, color: '#FFFFFF', padding: 12 },
+  testSigningButton: {
+    marginTop: 16,
+    minHeight: 46,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  testSigningButtonText: { color: '#0C2550', fontSize: 15, fontWeight: '700' },
   walletBalanceAndUnitContainer: { flexDirection: 'row', alignItems: 'center', paddingRight: 10 },
   walletBalanceText: { color: '#fff', fontWeight: 'bold', fontSize: 36, flexShrink: 1 },
   walletPreferredUnitView: {
