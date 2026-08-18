@@ -135,6 +135,7 @@ export type DetailViewStackParamList = {
     exportFilename: string;
   };
   WalletXpub: { walletID: string; xpub: string };
+  MuSig2DescriptorExport: { walletID: string };
   SignVerifyRoot: {
     screen: 'SignVerify';
     params: {
