@@ -19,6 +19,21 @@ tr(${PROVIDED_KEY_EXPRESSION}/*)#d69tpnqj
 No path restrictions
 bc1p4kxqrdy8zgz400ukce5vazr0d6qrunzeuacv3pxke3e9dznwcceqv3j4uh`;
 
+const ELECTRUM_COLDCARD_JSON = JSON.stringify({
+  seed_version: 17,
+  use_encryption: false,
+  wallet_type: 'standard',
+  keystore: {
+    type: 'hardware',
+    hw_type: 'coldcard',
+    label: 'Coldcard Import 52C4EAD8',
+    ckcc_xfp: 3639264338,
+    ckcc_xpub: 'xpub661MyMwAqRbcGXcajxEmY6QPji2UedMfx4wbm1Ah5n3m5UgyvC9xktPt676DFuoY76rKLGrwADGdUStUafkNsApxzWGU5Z6Mzvifr22M2dN',
+    derivation: 'm/86h/0h/0h',
+    xpub: NUNCHUK_XPUB,
+  },
+});
+
 describe('MuSig2 Nunchuk BSMS import', () => {
   it('extracts a signer key expression from the complete Nunchuk Mobile BSMS export', () => {
     assert.strictEqual(normalizeMuSig2SignerInput(NUNCHUK_BSMS), EXPECTED_KEY_EXPRESSION);
@@ -51,6 +66,16 @@ describe('MuSig2 Nunchuk BSMS import', () => {
       path: "m/86'/0'/0'",
     });
     assert.strictEqual(normalizeMuSig2SignerInput(json), EXPECTED_KEY_EXPRESSION);
+  });
+
+  it('accepts an Electrum COLDCARD hardware keystore export', () => {
+    const normalized = normalizeMuSig2SignerInput(ELECTRUM_COLDCARD_JSON);
+    assert.strictEqual(normalized, EXPECTED_KEY_EXPRESSION);
+
+    const parsed = parseMuSig2ParticipantKeyExpression(normalized);
+    assert.strictEqual(parsed.masterFingerprint, '52c4ead8');
+    assert.strictEqual(parsed.derivationPath, "m/86'/0'/0'");
+    assert.strictEqual(parsed.xpub, NUNCHUK_XPUB);
   });
 
   it('accepts a JSON wrapper around the single-key Taproot descriptor', () => {
