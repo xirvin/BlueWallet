@@ -3,7 +3,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 
-import { taprootWalletToMuSig2KeyExpression, validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
+import { normalizeMuSig2VaultSigner, taprootWalletToMuSig2KeyExpression, validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
 import Button from '../../components/Button';
@@ -25,11 +25,12 @@ const WalletsAddMuSig2Step2: React.FC = () => {
   const { signerCount, walletLabel } = useRoute<RouteProps>().params;
   const { wallets } = useStorage();
   const [signers, setSigners] = useState<string[]>(() => new Array(signerCount).fill(''));
+  const [assignedLabels, setAssignedLabels] = useState<string[]>(() => new Array(signerCount).fill(''));
   const data = useMemo(() => Array.from({ length: signerCount }, (_, index) => index), [signerCount]);
 
   const signerLabels = useMemo(
     () =>
-      signers.map(expression => {
+      signers.map((expression, index) => {
         if (!expression) return '';
 
         for (const wallet of wallets) {
@@ -40,13 +41,20 @@ const WalletsAddMuSig2Step2: React.FC = () => {
             }
           } catch {
             // Ignore non-compatible local wallets and fall through to the
-            // public-only signer label below.
+            // manually assigned/public-only signer label below.
           }
         }
 
-        return 'External signer';
+        if (assignedLabels[index]) return assignedLabels[index];
+
+        try {
+          const normalized = normalizeMuSig2VaultSigner(expression);
+          return `Signer ${normalized.participant.masterFingerprint?.toUpperCase() ?? ''}`.trim();
+        } catch {
+          return 'External signer';
+        }
       }),
-    [signers, wallets],
+    [assignedLabels, signers, wallets],
   );
 
   const editKey = useCallback(
@@ -55,8 +63,11 @@ const WalletsAddMuSig2Step2: React.FC = () => {
         keyIndex: index + 1,
         walletLabel,
         initialValue: signers[index],
-        onSave: expression => {
+        onSave: (expression, label?: string) => {
           setSigners(current => current.map((value, signerIndex) => (signerIndex === index ? expression : value)));
+          if (label !== undefined) {
+            setAssignedLabels(current => current.map((value, signerIndex) => (signerIndex === index ? label : value)));
+          }
         },
       });
     },
