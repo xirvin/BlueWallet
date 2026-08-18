@@ -70,7 +70,7 @@ export function getLocalMuSig2SignerMatches(
 
 function getLocalAccountSecretKey(match: LocalMuSig2SignerMatch): Uint8Array {
   const path = match.wallet.getDerivationPath();
-  if (path !== match.participant.derivationPath) {
+  if (!path || path !== match.participant.derivationPath) {
     throw new Error('Local MuSig2 signer derivation path no longer matches the vault participant');
   }
 
