@@ -21,7 +21,7 @@ function deterministicEntropy(seed: number) {
 }
 
 describe('MuSig2 local BlueWallet signers', () => {
-  it('detects saved BIP86 wallets by exact participant identity and completes both rounds locally', () => {
+  it('keeps Round 1 nonces pending until explicit Round 2 signing and then completes locally', () => {
     const signerA = createMuSig2TaprootSignerWallet(MNEMONIC_A);
     signerA.setLabel('Local A');
     const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B);
@@ -46,11 +46,16 @@ describe('MuSig2 local BlueWallet signers', () => {
     });
 
     assert.strictEqual(getMuSig2NonceProgress(coordinator).complete, true);
+    assert.strictEqual(getMuSig2PartialSignatureProgress(coordinator).collected, 0);
+    for (const nonces of nonceStates.values()) {
+      assert.strictEqual(nonces.every(nonce => !nonce.secretNonce.isConsumed()), true);
+    }
 
     for (const match of matches) {
       const nonces = nonceStates.get(match.participant.publicKeyHex);
       assert.ok(nonces);
       const response = createLocalMuSig2Round2Response(coordinator, match, nonces!);
+      assert.strictEqual(nonces!.every(nonce => nonce.secretNonce.isConsumed()), true);
       coordinator = mergeMuSig2Round2Psbt(coordinator, response).psbt;
     }
 
