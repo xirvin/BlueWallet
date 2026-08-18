@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 
 import BlueText from './BlueText';
 import Icon from './Icon';
@@ -20,12 +21,18 @@ type Props = {
   signers: MuSig2SignerProgressItem[];
 };
 
+const RING_SIZE = 142;
+const RING_STROKE = 7;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
 const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, label, signers }) => {
   const { colors } = useTheme();
   const pulse = useRef(new Animated.Value(0)).current;
   const pop = useRef(new Animated.Value(1)).current;
   const complete = expected > 0 && collected >= expected;
   const fraction = expected > 0 ? Math.min(1, collected / expected) : 0;
+  const ringColor = complete ? colors.successColor : colors.newBlue;
 
   useEffect(() => {
     pop.setValue(0.94);
@@ -117,35 +124,42 @@ const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, la
       </View>
 
       <View style={styles.progressArea}>
-        <Animated.View style={[styles.halo, { backgroundColor: colors.newBlue }, haloStyle]} />
-        <Animated.View
-          style={[
-            styles.progressCircle,
-            {
-              borderColor: complete ? colors.successColor : colors.newBlue,
-              backgroundColor: colors.elevated,
-              transform: [{ scale: pop }],
-            },
-          ]}
-        >
-          <BlueText style={[styles.progressValue, { color: complete ? colors.successColor : colors.newBlue }]}>
-            {collected}
-            <BlueText style={[styles.progressExpected, { color: colors.foregroundColor }]}>/{expected}</BlueText>
-          </BlueText>
-        </Animated.View>
+        <View style={styles.ringContainer}>
+          <Animated.View style={[styles.halo, { backgroundColor: colors.newBlue }, haloStyle]} />
+          <Svg width={RING_SIZE} height={RING_SIZE} style={styles.ringSvg}>
+            <Circle
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_RADIUS}
+              fill="none"
+              stroke={colors.buttonDisabledBackgroundColor}
+              strokeWidth={RING_STROKE}
+            />
+            <Circle
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_RADIUS}
+              fill="none"
+              stroke={ringColor}
+              strokeWidth={RING_STROKE}
+              strokeLinecap="round"
+              strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+              strokeDashoffset={RING_CIRCUMFERENCE * (1 - fraction)}
+              transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+            />
+          </Svg>
+          <Animated.View style={[styles.progressValueContainer, { transform: [{ scale: pop }] }]}>
+            <BlueText style={[styles.progressValue, { color: ringColor }]}>
+              {collected}
+              <BlueText style={[styles.progressExpected, { color: colors.foregroundColor }]}>/{expected}</BlueText>
+            </BlueText>
+          </Animated.View>
+        </View>
         <BlueText bold style={styles.progressLabel}>
           {label}
         </BlueText>
         <View style={[styles.progressTrack, { backgroundColor: colors.buttonDisabledBackgroundColor }]}>
-          <Animated.View
-            style={[
-              styles.progressFill,
-              {
-                width: `${fraction * 100}%`,
-                backgroundColor: complete ? colors.successColor : colors.newBlue,
-              },
-            ]}
-          />
+          <View style={[styles.progressFill, { width: `${fraction * 100}%`, backgroundColor: ringColor }]} />
         </View>
       </View>
 
@@ -213,8 +227,10 @@ const styles = StyleSheet.create({
   stepLabel: { marginTop: 6, fontSize: 12 },
   stepLine: { height: 2, flex: 1, maxWidth: 58, marginTop: 14 },
   progressArea: { alignItems: 'center', marginBottom: 24 },
-  halo: { position: 'absolute', top: 0, width: 142, height: 142, borderRadius: 71 },
-  progressCircle: { width: 142, height: 142, borderRadius: 71, borderWidth: 7, alignItems: 'center', justifyContent: 'center' },
+  ringContainer: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
+  halo: { position: 'absolute', width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2 },
+  ringSvg: { position: 'absolute' },
+  progressValueContainer: { alignItems: 'center', justifyContent: 'center' },
   progressValue: { fontSize: 42, fontWeight: '700', letterSpacing: -1 },
   progressExpected: { fontSize: 25, fontWeight: '600' },
   progressLabel: { marginTop: 12, fontSize: 16 },
