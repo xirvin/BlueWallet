@@ -2,6 +2,7 @@ import { randomBytes } from '@noble/hashes/utils';
 import BIP32Factory from 'bip32';
 import * as bitcoin from 'bitcoinjs-lib';
 import { Psbt } from 'bitcoinjs-lib';
+import { Buffer } from 'buffer';
 
 import { HDTaprootMuSig2Wallet, MuSig2ParticipantMetadata } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
