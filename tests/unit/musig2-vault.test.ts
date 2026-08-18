@@ -10,6 +10,8 @@ import {
   MUSIG2_SIGNER_DERIVATION,
   assertMuSig2SignerCount,
   clampMuSig2SignerCount,
+  createMuSig2TaprootSignerWallet,
+  isMuSig2TaprootSignerMnemonic,
   normalizeMuSig2VaultSigner,
   taprootWalletToMuSig2KeyExpression,
   validateMuSig2VaultSigners,
@@ -107,5 +109,29 @@ describe('MuSig2 Vault UX rules', () => {
     const normalized = normalizeMuSig2VaultSigner(expression);
     assert.strictEqual(normalized.participant.derivationPath, MUSIG2_SIGNER_DERIVATION);
     assert.strictEqual(normalized.participant.xpub, signer.getXpub());
+  });
+
+  it('imports a BIP39 seed as a normal local BIP86 Taproot signer wallet', () => {
+    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+    assert.strictEqual(isMuSig2TaprootSignerMnemonic(mnemonic), true);
+    assert.strictEqual(isMuSig2TaprootSignerMnemonic('not a valid seed phrase'), false);
+
+    const signer = createMuSig2TaprootSignerWallet(mnemonic);
+    assert.strictEqual(signer.type, HDTaprootWallet.type);
+    assert.strictEqual(signer.getDerivationPath(), MUSIG2_SIGNER_DERIVATION);
+    assert.ok(signer._getExternalAddressByIndex(0).startsWith('bc1p'));
+
+    const expression = taprootWalletToMuSig2KeyExpression(signer);
+    assert.strictEqual(normalizeMuSig2VaultSigner(expression).participant.xpub, signer.getXpub());
+  });
+
+  it('includes a BIP39 passphrase in the local signer identity', () => {
+    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+    const plain = createMuSig2TaprootSignerWallet(mnemonic);
+    const protectedSigner = createMuSig2TaprootSignerWallet(mnemonic, 'MuSig2 test passphrase');
+
+    assert.notStrictEqual(protectedSigner.getXpub(), plain.getXpub());
+    assert.notStrictEqual(protectedSigner._getExternalAddressByIndex(0), plain._getExternalAddressByIndex(0));
+    assert.notStrictEqual(taprootWalletToMuSig2KeyExpression(protectedSigner), taprootWalletToMuSig2KeyExpression(plain));
   });
 });
