@@ -103,8 +103,10 @@ const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, la
                 style={[
                   styles.stepLabel,
                   { color: colors.alternativeTextColor },
-                  step.active && { color: colors.newBlue, fontWeight: '700' },
-                  step.done && { color: colors.successColor, fontWeight: '700' },
+                  step.active && styles.stepLabelEmphasized,
+                  step.active && { color: colors.newBlue },
+                  step.done && styles.stepLabelEmphasized,
+                  step.done && { color: colors.successColor },
                 ]}
               >
                 {step.title}
@@ -197,13 +199,14 @@ const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, la
                 { backgroundColor: signer.complete ? colors.receiveBackground : colors.buttonDisabledBackgroundColor },
               ]}
             >
-              <BlueText
-                style={[
-                  styles.statusText,
-                  { color: signer.complete ? colors.successColor : colors.alternativeTextColor },
-                ]}
-              >
-                {signer.complete ? (phase === 1 ? 'Nonce received' : 'Signature received') : phase === 1 ? 'Waiting for nonce' : 'Waiting for signature'}
+              <BlueText style={[styles.statusText, { color: signer.complete ? colors.successColor : colors.alternativeTextColor }]}>
+                {signer.complete
+                  ? phase === 1
+                    ? 'Nonce received'
+                    : 'Signature received'
+                  : phase === 1
+                    ? 'Waiting for nonce'
+                    : 'Waiting for signature'}
               </BlueText>
               <Icon
                 name={signer.complete ? 'check-circle' : 'clock-o'}
@@ -225,6 +228,7 @@ const styles = StyleSheet.create({
   stepCircle: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   stepNumber: { fontSize: 13, fontWeight: '700' },
   stepLabel: { marginTop: 6, fontSize: 12 },
+  stepLabelEmphasized: { fontWeight: '700' },
   stepLine: { height: 2, flex: 1, maxWidth: 58, marginTop: 14 },
   progressArea: { alignItems: 'center', marginBottom: 24 },
   ringContainer: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
@@ -241,7 +245,15 @@ const styles = StyleSheet.create({
   signerIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   signerText: { flex: 1, minWidth: 0 },
   signerSubtitle: { fontSize: 12, marginTop: 3 },
-  statusBadge: { borderRadius: 15, paddingHorizontal: 9, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 8 },
+  statusBadge: {
+    borderRadius: 15,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginLeft: 8,
+  },
   statusText: { fontSize: 11, fontWeight: '600' },
 });
 
