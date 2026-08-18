@@ -124,7 +124,10 @@ export const AddressInputScanButton = ({
     [onChangeText],
   );
 
-  const menuButtonStyle = useMemo(() => (type === 'default' ? [styles.scan, stylesHook.scan] : undefined), [stylesHook.scan, type]);
+  const menuButtonStyle = useMemo(
+    () => (type === 'default' ? [styles.scan, stylesHook.scan] : styles.linkButton),
+    [stylesHook.scan, type],
+  );
 
   return (
     <ToolTipMenu
@@ -173,6 +176,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginHorizontal: 4,
     alignSelf: 'center',
+  },
+  linkButton: {
+    height: 44,
+    maxHeight: 44,
+    width: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: 'center',
+    justifyContent: 'center',
   },
   scanText: {
     marginLeft: 4,
