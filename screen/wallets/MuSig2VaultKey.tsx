@@ -20,6 +20,7 @@ import BlueFormLabel from '../../components/BlueFormLabel';
 import Button from '../../components/Button';
 import SafeAreaScrollView from '../../components/SafeAreaScrollView';
 import { useTheme } from '../../components/themes';
+import prompt from '../../helpers/prompt';
 import { useStorage } from '../../hooks/context/useStorage';
 import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
 import ActionSheet from '../ActionSheet';
@@ -126,10 +127,26 @@ const MuSig2VaultKey: React.FC = () => {
   }, [addAndSaveWallet, assignPublicExpression, input, keyIndex, navigation, onSave, passphrase, usePassphrase, walletLabel, wallets]);
 
   const createNewTaprootKey = useCallback(async () => {
+    const defaultLabel = `${walletLabel} · Vault Key ${keyIndex}`;
+    let signerWalletLabel = defaultLabel;
+
+    try {
+      const requestedLabel = await prompt('Name Taproot signer wallet', 'How would you like to name this wallet?', {
+        type: 'plain-text',
+        defaultValue: defaultLabel,
+        continueButtonText: 'Create',
+      });
+      signerWalletLabel = requestedLabel.trim() || defaultLabel;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Cancel Pressed') return;
+      presentAlert({ title: 'Could not name Taproot signer wallet', message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const wallet = new HDTaprootWallet();
-      wallet.setLabel(`${walletLabel} · Vault Key ${keyIndex}`);
+      wallet.setLabel(signerWalletLabel);
       await wallet.generate();
       const expression = taprootWalletToMuSig2KeyExpression(wallet);
       await addAndSaveWallet(wallet);
