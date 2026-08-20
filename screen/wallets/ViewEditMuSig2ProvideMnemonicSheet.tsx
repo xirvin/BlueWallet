@@ -4,22 +4,29 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { createMuSig2TaprootSignerWallet, normalizeMuSig2VaultSigner, taprootWalletToMuSig2KeyExpression } from '../../blue_modules/musig2/vault';
-import { watchOnlyWalletMatchesMuSig2Participant } from '../../blue_modules/musig2/signer-management';
+import {
+  restoreMuSig2LocalSignerWalletFromWatchOnly,
+  watchOnlyWalletMatchesMuSig2Participant,
+} from '../../blue_modules/musig2/signer-management';
+import {
+  createMuSig2TaprootSignerWallet,
+  normalizeMuSig2VaultSigner,
+  taprootWalletToMuSig2KeyExpression,
+} from '../../blue_modules/musig2/vault';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import { WatchOnlyWallet } from '../../class/wallets/watch-only-wallet';
 import { AddressInputScanButton } from '../../components/AddressInputScanButton';
+import presentAlert from '../../components/Alert';
 import BlueFormLabel from '../../components/BlueFormLabel';
 import BlueFormMultiInput from '../../components/BlueFormMultiInput';
-import BlueTextCentered from '../../components/BlueTextCentered';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
+import BlueTextCentered from '../../components/BlueTextCentered';
 import Button from '../../components/Button';
 import {
   DoneAndDismissKeyboardInputAccessory,
   DoneAndDismissKeyboardInputAccessoryViewID,
 } from '../../components/DoneAndDismissKeyboardInputAccessory';
-import presentAlert from '../../components/Alert';
 import { useTheme } from '../../components/themes';
 import prompt from '../../helpers/prompt';
 import { useStorage } from '../../hooks/context/useStorage';
@@ -68,7 +75,7 @@ const ViewEditMuSig2ProvideMnemonicSheet: React.FC = () => {
           }
         }
 
-        const signerWallet = createMuSig2TaprootSignerWallet(mnemonic, passphrase);
+        let signerWallet = createMuSig2TaprootSignerWallet(mnemonic, passphrase);
         const normalized = normalizeMuSig2VaultSigner(taprootWalletToMuSig2KeyExpression(signerWallet)).participant;
         if (
           normalized.publicKeyHex !== participant.publicKeyHex.toLowerCase() ||
@@ -96,7 +103,12 @@ const ViewEditMuSig2ProvideMnemonicSheet: React.FC = () => {
         const matchingWatchOnly = wallets.find(
           wallet => wallet.type === WatchOnlyWallet.type && watchOnlyWalletMatchesMuSig2Participant(wallet as WatchOnlyWallet, participant),
         ) as WatchOnlyWallet | undefined;
-        signerWallet.setLabel(matchingWatchOnly?.getLabel() ?? `${vault.getLabel()} · Vault Key ${params.participantIndex + 1}`);
+
+        if (matchingWatchOnly) {
+          signerWallet = restoreMuSig2LocalSignerWalletFromWatchOnly(signerWallet, matchingWatchOnly);
+        } else {
+          signerWallet.setLabel(`${vault.getLabel()} · Vault Key ${params.participantIndex + 1}`);
+        }
 
         const nextWallets = matchingWatchOnly
           ? wallets.map(wallet => (wallet.getID() === matchingWatchOnly.getID() ? signerWallet : wallet))
