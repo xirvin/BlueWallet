@@ -69,20 +69,21 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
             </BlueText>
             <BlueText style={[styles.progressText, { color: colors.alternativeTextColor }]}>{progressLabel}</BlueText>
             <BlueText style={[styles.sessionHint, { color: colors.alternativeTextColor }]}>
-              Resume where you left off, restart from fresh Round 1, or remove this pending signing session.
+              Resume where you left off, restart from fresh Round 1, or remove this pending transfer.
             </BlueText>
           </View>
 
           <TouchableOpacity
             testID="MuSig2SessionResume"
             accessibilityRole="button"
-            activeOpacity={0.82}
-            style={[styles.primaryButton, { backgroundColor: colors.newBlue }]}
+            activeOpacity={0.78}
+            style={[styles.resumeButton, { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground }]}
             onPress={onResume}
           >
-            <Icon name="play" type="font-awesome" size={16} color={colors.inverseForegroundColor} />
-            <BlueText bold style={[styles.primaryButtonText, { color: colors.inverseForegroundColor }]}>Resume</BlueText>
-            <Icon name="chevron-right" type="font-awesome" size={13} color={colors.inverseForegroundColor} />
+            <Icon name="play" type="font-awesome" size={16} color={colors.newBlue} />
+            <BlueText bold style={styles.resumeButtonText}>
+              Resume
+            </BlueText>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -99,7 +100,6 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
                 <BlueText style={[styles.buttonDescription, { color: colors.alternativeTextColor }]}>Discard signing progress and begin fresh Round 1.</BlueText>
               </View>
             </View>
-            <Icon name="chevron-right" type="font-awesome" size={13} color={colors.newBlue} />
           </TouchableOpacity>
 
           <View style={[styles.divider, { backgroundColor: colors.cardBorderColor }]} />
@@ -114,9 +114,9 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
             <Icon name="trash" type="font-awesome" size={15} color={colors.redText} />
             <View style={styles.destructiveCopy}>
               <BlueText bold style={{ color: colors.redText }}>
-                Cancel session
+                Cancel Transfer
               </BlueText>
-              <BlueText style={[styles.buttonDescription, { color: colors.redText }]}>Remove this pending session. Nothing will be broadcast.</BlueText>
+              <BlueText style={[styles.buttonDescription, { color: colors.redText }]}>Remove this pending transfer. Nothing will be broadcast.</BlueText>
             </View>
           </TouchableOpacity>
         </SafeAreaView>
@@ -148,15 +148,16 @@ const styles = StyleSheet.create({
   sessionTitle: { fontSize: 17 },
   progressText: { marginTop: 5, fontSize: 13, fontWeight: '600' },
   sessionHint: { marginTop: 10, fontSize: 12, lineHeight: 17 },
-  primaryButton: {
+  resumeButton: {
     minHeight: 54,
-    borderRadius: 27,
-    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderRadius: 15,
+    paddingHorizontal: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryButtonText: { flex: 1, marginLeft: 10, fontSize: 16, textAlign: 'center' },
+  resumeButtonText: { marginLeft: 10, fontSize: 16 },
   secondaryButton: {
     minHeight: 72,
     borderWidth: 1,
