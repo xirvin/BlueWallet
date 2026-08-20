@@ -108,7 +108,6 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, overflow: 'hidden', marginBottom: 18 },
   row: { minHeight: 48, paddingHorizontal: 16, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
-  label: { width: 72, fontSize: 13 },
   value: { flex: 1, textAlign: 'right', fontSize: 14 },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
   recipientValue: { flex: 1, alignItems: 'flex-end' },
