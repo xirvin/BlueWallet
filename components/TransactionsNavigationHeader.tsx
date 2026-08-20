@@ -184,9 +184,13 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
 
   const handleManageFundsPressed = useCallback(
     (actionKeyID?: string) => {
+      if (isMuSig2Vault) {
+        (navigation as any).navigate('ViewEditMuSig2Signers', { walletID: wallet.getID() });
+        return;
+      }
       if (onManageFundsPressed) onManageFundsPressed(actionKeyID);
     },
-    [onManageFundsPressed],
+    [isMuSig2Vault, navigation, onManageFundsPressed, wallet],
   );
 
   const onPressMenuItem = useCallback(
@@ -377,8 +381,13 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
             </TouchableOpacity>
           )}
         </View>
-        {wallet.type === MultisigHDWallet.type && (
-          <TouchableOpacity style={styles.manageFundsButton} accessibilityRole="button" onPress={() => handleManageFundsPressed()}>
+        {(wallet.type === MultisigHDWallet.type || isMuSig2Vault) && (
+          <TouchableOpacity
+            testID={isMuSig2Vault ? 'MuSig2ManageKeys' : undefined}
+            style={styles.manageFundsButton}
+            accessibilityRole="button"
+            onPress={() => handleManageFundsPressed()}
+          >
             <Text style={styles.manageFundsButtonText}>{loc.multisig.manage_keys}</Text>
           </TouchableOpacity>
         )}
