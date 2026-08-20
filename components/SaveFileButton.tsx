@@ -1,5 +1,5 @@
 import React, { ReactNode, useCallback } from 'react';
-import { StyleProp, TouchableOpacityProps, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, TouchableOpacityProps, View, ViewStyle } from 'react-native';
 
 import * as fs from '../blue_modules/fs';
 import loc from '../loc';
@@ -45,12 +45,16 @@ const SaveFileButton: React.FC<SaveFileButtonProps> = ({ fileName, fileContent, 
       onPressMenuItem={handlePressMenuItem}
       buttonStyle={style as ViewStyle}
     >
-      {children}
+      <View style={styles.content}>{children}</View>
     </ToolTipMenu>
   );
 };
 
 export default SaveFileButton;
+
+const styles = StyleSheet.create({
+  content: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },
+});
 
 const actionIcons: { [key: string]: ActionIcons } = {
   Share: {
