@@ -16,6 +16,8 @@ export type MuSig2SignerProgressItem = {
   title: string;
   subtitle: string;
   complete: boolean;
+  pendingLabel?: string;
+  completeLabel?: string;
 };
 
 type Props = {
@@ -140,11 +142,7 @@ const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, la
       </View>
 
       {transactionSummary && (
-        <MuSig2TransactionSummary
-          summary={transactionSummary}
-          isDryRun={params.isDryRun === true}
-          verified={phase === 3}
-        />
+        <MuSig2TransactionSummary summary={transactionSummary} isDryRun={params.isDryRun === true} verified={phase === 3} />
       )}
 
       <View style={styles.progressArea}>
@@ -223,18 +221,14 @@ const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, la
             >
               <BlueText style={[styles.statusText, { color: signer.complete ? colors.successColor : colors.alternativeTextColor }]}>
                 {signer.complete
-                  ? phase === 1
-                    ? 'Nonce received'
-                    : 'Signature received'
-                  : phase === 1
-                    ? 'Waiting for nonce'
-                    : 'Waiting for signature'}
+                  ? signer.completeLabel ?? (phase === 1 ? 'Nonce received' : 'Signature received')
+                  : signer.pendingLabel ?? (phase === 1 ? 'Waiting for nonce' : 'Waiting for signature')}
               </BlueText>
               <Icon
-                name={signer.complete ? 'check-circle' : 'clock-o'}
+                name={signer.complete ? 'check-circle' : signer.pendingLabel ? 'circle' : 'clock-o'}
                 type="font-awesome"
                 size={14}
-                color={signer.complete ? colors.successColor : colors.alternativeTextColor}
+                color={signer.complete ? colors.successColor : signer.pendingLabel ? colors.newBlue : colors.alternativeTextColor}
               />
             </View>
           </View>
