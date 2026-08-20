@@ -68,29 +68,29 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
               MuSig2 signing in progress
             </BlueText>
             <BlueText style={[styles.progressText, { color: colors.alternativeTextColor }]}>{progressLabel}</BlueText>
-            <BlueText style={[styles.sessionHint, { color: colors.alternativeTextColor }]}>
-              Resume where you left off, restart from fresh Round 1, or remove this pending transfer.
-            </BlueText>
           </View>
 
           <TouchableOpacity
             testID="MuSig2SessionResume"
             accessibilityRole="button"
             activeOpacity={0.78}
-            style={[styles.resumeButton, { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground }]}
+            style={[styles.actionButton, { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground }]}
             onPress={onResume}
           >
-            <Icon name="play" type="font-awesome" size={16} color={colors.newBlue} />
-            <BlueText bold style={styles.resumeButtonText}>
-              Resume
-            </BlueText>
+            <View style={styles.buttonLeading}>
+              <Icon name="play" type="font-awesome" size={16} color={colors.newBlue} />
+              <View style={styles.buttonCopy}>
+                <BlueText bold>Resume</BlueText>
+                <BlueText style={[styles.buttonDescription, { color: colors.alternativeTextColor }]}>Resume where you left off.</BlueText>
+              </View>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
             testID="MuSig2SessionRestart"
             accessibilityRole="button"
             activeOpacity={0.78}
-            style={[styles.secondaryButton, { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground }]}
+            style={[styles.actionButton, { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground }]}
             onPress={onRestart}
           >
             <View style={styles.buttonLeading}>
@@ -147,18 +147,7 @@ const styles = StyleSheet.create({
   statusPillText: { fontSize: 11, fontWeight: '700' },
   sessionTitle: { fontSize: 17 },
   progressText: { marginTop: 5, fontSize: 13, fontWeight: '600' },
-  sessionHint: { marginTop: 10, fontSize: 12, lineHeight: 17 },
-  resumeButton: {
-    minHeight: 54,
-    borderWidth: 1,
-    borderRadius: 15,
-    paddingHorizontal: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resumeButtonText: { marginLeft: 10, fontSize: 16 },
-  secondaryButton: {
+  actionButton: {
     minHeight: 72,
     borderWidth: 1,
     borderRadius: 15,
