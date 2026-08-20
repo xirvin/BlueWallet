@@ -1,4 +1,4 @@
-import { HDTaprootMuSig2Wallet, MuSig2ParticipantMetadata } from '../../class/wallets/hd-taproot-musig2-wallet';
+import { MuSig2ParticipantMetadata } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import { WatchOnlyWallet } from '../../class/wallets/watch-only-wallet';
 import { normalizeMuSig2VaultSigner, taprootWalletToMuSig2KeyExpression } from './vault';
@@ -42,9 +42,8 @@ export function createMuSig2WatchOnlySignerWallet(
 
   const watchOnly = new WatchOnlyWallet();
   watchOnly.setLabel(localWallet.getLabel());
-  watchOnly.setSecret(participant.xpub);
+  watchOnly.setSecret(muSig2ParticipantKeyExpression(participant));
   watchOnly.segwitType = 'p2tr';
-  watchOnly._derivationPath = participant.derivationPath;
   watchOnly.hideBalance = localWallet.hideBalance;
   watchOnly.setPreferredBalanceUnit(localWallet.getPreferredBalanceUnit());
   watchOnly.setUserHasSavedExport(localWallet.getUserHasSavedExport());
@@ -56,34 +55,24 @@ export function createMuSig2WatchOnlySignerWallet(
     throw new Error('Could not create xpub-only Taproot signer wallet');
   }
 
-  // Preserve public wallet state so the converted signer remains useful as a
-  // watch-only wallet without copying any mnemonic, passphrase, WIF cache, or
-  // private BIP32 node state.
+  // Preserve only public wallet state so the converted signer remains useful
+  // as a watch-only wallet. Mnemonic, passphrase, WIF cache, and private BIP32
+  // node state are deliberately not copied.
   hdWallet.next_free_address_index = localWallet.next_free_address_index;
   hdWallet.next_free_change_address_index = localWallet.next_free_change_address_index;
   hdWallet.external_addresses_cache = { ...localWallet.external_addresses_cache };
   hdWallet.internal_addresses_cache = { ...localWallet.internal_addresses_cache };
+  hdWallet._txs_by_external_index = { ...localWallet._txs_by_external_index };
+  hdWallet._txs_by_internal_index = { ...localWallet._txs_by_internal_index };
+  hdWallet._utxo = [...localWallet._utxo];
+  hdWallet._utxoMetadata = { ...localWallet._utxoMetadata };
   hdWallet.balance = localWallet.balance;
   hdWallet.unconfirmed_balance = localWallet.unconfirmed_balance;
   hdWallet._lastTxFetch = localWallet._lastTxFetch;
   hdWallet._lastBalanceFetch = localWallet._lastBalanceFetch;
-  hdWallet._utxo = [...localWallet._utxo];
+  hdWallet.gap_limit = localWallet.gap_limit;
   hdWallet.preferredBalanceUnit = localWallet.getPreferredBalanceUnit();
   hdWallet.hideBalance = localWallet.hideBalance;
 
   return watchOnly;
-}
-
-export function getMuSig2VaultLocalSignerWallets(wallet: HDTaprootMuSig2Wallet, wallets: HDTaprootWallet[]): HDTaprootWallet[] {
-  const participants = wallet.getParticipants();
-  return participants.flatMap(participant => {
-    const local = wallets.find(candidate => {
-      try {
-        return normalizeMuSig2VaultSigner(taprootWalletToMuSig2KeyExpression(candidate)).participant.publicKeyHex === participant.publicKeyHex;
-      } catch {
-        return false;
-      }
-    });
-    return local ? [local] : [];
-  });
 }
