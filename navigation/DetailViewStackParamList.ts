@@ -134,6 +134,8 @@ export type DetailViewStackParamList = {
     cosignerXpubURv2: string;
     exportFilename: string;
   };
+  ViewEditMuSig2Signers: { walletID: string };
+  ViewEditMuSig2ProvideMnemonicSheet: { walletID: string; participantIndex: number };
   WalletXpub: { walletID: string; xpub: string };
   MuSig2DescriptorExport: { walletID: string };
   SignVerifyRoot: {
