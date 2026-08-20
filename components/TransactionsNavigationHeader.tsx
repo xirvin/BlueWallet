@@ -7,6 +7,7 @@ import { useFocusEffect, useLocale, useNavigation } from '@react-navigation/nati
 
 import {
   MuSig2CoordinatorSessionSummary,
+  clearMuSig2CoordinatorSession,
   listMuSig2CoordinatorSessions,
 } from '../blue_modules/musig2/coordinator-session';
 import { createMuSig2DryRun } from '../blue_modules/musig2/dry-run';
@@ -51,7 +52,7 @@ function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): { titl
     if (session.state === 'CREATED' || session.state === 'COLLECTING_NONCES') {
       return {
         title: 'MuSig2 signing · Round 1',
-        subtitle: `${nonceProgress.collected}/${nonceProgress.expected} public nonces · Tap to resume`,
+        subtitle: `${nonceProgress.collected}/${nonceProgress.expected} public nonces · Tap for options`,
       };
     }
 
@@ -59,18 +60,18 @@ function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): { titl
     if (session.state === 'SIGNATURES_COMPLETE') {
       return {
         title: 'MuSig2 signing · Ready to finalize',
-        subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap to finish`,
+        subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap for options`,
       };
     }
 
     return {
       title: 'MuSig2 signing · Round 2',
-      subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap to resume`,
+      subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap for options`,
     };
   } catch {
     return {
       title: 'MuSig2 signing session',
-      subtitle: 'Saved signing session · Tap to validate and resume',
+      subtitle: 'Saved signing session · Tap for options',
     };
   }
 }
@@ -201,6 +202,82 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
     [navigation, wallet],
   );
 
+  const restartMuSig2Session = useCallback(
+    (session: MuSig2CoordinatorSessionSummary) => {
+      presentAlert({
+        title: 'Restart MuSig2 signing session?',
+        message: 'Collected nonces and partial signatures will be discarded. Every signer must begin again from Round 1.',
+        buttons: [
+          { text: 'Keep session', style: 'cancel' },
+          {
+            text: 'Restart',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                try {
+                  const round1Psbt = Psbt.fromBase64(session.round1PsbtBase64);
+                  await clearMuSig2CoordinatorSession(wallet.getID(), round1Psbt);
+                  setMuSig2Sessions(current => current.filter(item => item.sessionId !== session.sessionId));
+                  resumeMuSig2Session(session);
+                } catch (error: any) {
+                  presentAlert({ title: 'Could not restart MuSig2 session', message: error?.message ?? String(error) });
+                }
+              })();
+            },
+          },
+        ],
+      });
+    },
+    [resumeMuSig2Session, wallet],
+  );
+
+  const cancelMuSig2Session = useCallback(
+    (session: MuSig2CoordinatorSessionSummary) => {
+      presentAlert({
+        title: 'Cancel MuSig2 signing session?',
+        message: 'This pending signing session will be removed. No transaction will be broadcast.',
+        buttons: [
+          { text: 'Keep session', style: 'cancel' },
+          {
+            text: 'Cancel session',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                try {
+                  const round1Psbt = Psbt.fromBase64(session.round1PsbtBase64);
+                  await clearMuSig2CoordinatorSession(wallet.getID(), round1Psbt);
+                  setMuSig2Sessions(current => current.filter(item => item.sessionId !== session.sessionId));
+                } catch (error: any) {
+                  presentAlert({ title: 'Could not cancel MuSig2 session', message: error?.message ?? String(error) });
+                }
+              })();
+            },
+          },
+        ],
+      });
+    },
+    [wallet],
+  );
+
+  const showMuSig2SessionOptions = useCallback(
+    (session: MuSig2CoordinatorSessionSummary) => {
+      ActionSheet.showActionSheetWithOptions(
+        {
+          title: 'Signing session options',
+          options: ['Resume', 'Restart', 'Cancel session', 'Dismiss'],
+          destructiveButtonIndex: 2,
+          cancelButtonIndex: 3,
+        },
+        buttonIndex => {
+          if (buttonIndex === 0) resumeMuSig2Session(session);
+          else if (buttonIndex === 1) restartMuSig2Session(session);
+          else if (buttonIndex === 2) cancelMuSig2Session(session);
+        },
+      );
+    },
+    [cancelMuSig2Session, restartMuSig2Session, resumeMuSig2Session],
+  );
+
   const startMuSig2DryRun = useCallback(() => {
     if (!isMuSig2Vault) return;
 
@@ -320,9 +397,11 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
               return (
                 <TouchableOpacity
                   key={session.sessionId}
+                  testID={`MuSig2SigningSession-${session.sessionId}`}
                   accessibilityRole="button"
+                  accessibilityLabel={`${description.title}. ${description.subtitle}`}
                   style={styles.signingSessionRow}
-                  onPress={() => resumeMuSig2Session(session)}
+                  onPress={() => showMuSig2SessionOptions(session)}
                 >
                   <View style={styles.signingSessionText}>
                     <Text style={styles.signingSessionTitle}>{description.title}</Text>
