@@ -171,7 +171,18 @@ const ViewEditMuSig2Signers: React.FC = () => {
           if (!(await unlockWithBiometrics())) return;
         }
 
-        const resetSessionCount = await resetUnsafePendingSessions(params.walletID, participant);
+        const affectedVaults = wallets.filter(candidate => {
+          if (candidate.type !== HDTaprootMuSig2Wallet.type) return false;
+          return (candidate as HDTaprootMuSig2Wallet)
+            .getParticipants()
+            .some(candidateParticipant => candidateParticipant.publicKeyHex === participant.publicKeyHex);
+        }) as HDTaprootMuSig2Wallet[];
+
+        let resetSessionCount = 0;
+        for (const affectedVault of affectedVaults) {
+          resetSessionCount += await resetUnsafePendingSessions(affectedVault.getID(), participant);
+        }
+
         const watchOnly = createMuSig2WatchOnlySignerWallet(localWallet, participant);
         const nextWallets = wallets.map(wallet => (wallet.getID() === localWallet.getID() ? watchOnly : wallet));
         setWalletsWithNewOrder(nextWallets);
@@ -189,7 +200,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
         setBusyParticipantIndex(undefined);
       }
     },
-    [busyParticipantIndex, isBiometricUseCapableAndEnabled, params.walletID, setWalletsWithNewOrder, wallets],
+    [busyParticipantIndex, isBiometricUseCapableAndEnabled, setWalletsWithNewOrder, wallets],
   );
 
   const confirmForgetSeed = useCallback(
@@ -197,7 +208,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
       presentAlert({
         title: 'Forget this seed and use xpub?',
         message:
-          'BlueWallet will permanently remove the mnemonic and BIP39 passphrase for this Taproot signer and keep an xpub-only watch-only wallet instead. This device will no longer sign for this Vault Key. If the same signer is used by another MuSig2 vault or holds standalone funds, those will also become watch-only until the seed is imported again. The MuSig2 vault, addresses, descriptor, and export data remain unchanged. Any pending transfer that contains an unconsumed nonce for this signer will be reset to fresh Round 1.',
+          'BlueWallet will permanently remove the mnemonic and BIP39 passphrase for this Taproot signer and keep an xpub-only watch-only wallet instead. This device will no longer sign for this Vault Key. If the same signer is used by another MuSig2 vault or holds standalone funds, those will also become watch-only until the seed is imported again. The MuSig2 vault, addresses, descriptor, and export data remain unchanged. Any pending transfer in an affected MuSig2 vault that contains an unconsumed nonce for this signer will be reset to fresh Round 1.',
         buttons: [
           { text: 'Keep seed', style: 'cancel' },
           {
