@@ -39,7 +39,7 @@ const ViewEditMuSig2ProvideMnemonicSheet: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const { params } = useRoute<RouteProps>();
-  const { wallets, setWalletsWithNewOrder } = useStorage();
+  const { wallets, setWalletsWithNewOrder, saveToDisk } = useStorage();
   const [importText, setImportText] = useState('');
   const [askPassphrase, setAskPassphrase] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -114,6 +114,7 @@ const ViewEditMuSig2ProvideMnemonicSheet: React.FC = () => {
           ? wallets.map(wallet => (wallet.getID() === matchingWatchOnly.getID() ? signerWallet : wallet))
           : [...wallets, signerWallet];
         setWalletsWithNewOrder(nextWallets);
+        await saveToDisk(true);
         presentAlert({
           title: `Vault Key ${params.participantIndex + 1} restored`,
           message: 'This signer is now available for local MuSig2 Round 1 nonce generation and Round 2 signing.',
@@ -124,7 +125,17 @@ const ViewEditMuSig2ProvideMnemonicSheet: React.FC = () => {
       } finally {
         setIsLoading(false);
       }
-    }, [askPassphrase, importText, isLoading, navigation, params.participantIndex, params.walletID, setWalletsWithNewOrder, wallets],
+    }, [
+      askPassphrase,
+      importText,
+      isLoading,
+      navigation,
+      params.participantIndex,
+      params.walletID,
+      saveToDisk,
+      setWalletsWithNewOrder,
+      wallets,
+    ],
   );
 
   return (
