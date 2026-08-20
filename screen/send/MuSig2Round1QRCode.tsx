@@ -219,10 +219,11 @@ const MuSig2Round1QRCode: React.FC = () => {
       const nonceInputs = participantInputCount(nonceRecords, publicKeyHex);
       const signatureInputs = participantInputCount(partialSignatureRecords, publicKeyHex);
       const localMatch = localSignerByPublicKey.get(publicKeyHex);
+      const localReadyToPrepareNonce = Boolean(localMatch && phase === 1 && nonceInputs < round1Psbt.inputCount);
       const localReadyToSign = Boolean(localMatch && phase === 2 && signatureInputs < round1Psbt.inputCount);
 
       const subtitle = localMatch
-        ? `${localMatch.wallet.getLabel()} · On this device${localReadyToSign ? ' · Ready to sign' : ''}`
+        ? `${localMatch.wallet.getLabel()} · On this device`
         : participant.masterFingerprint
           ? `Fingerprint ${participant.masterFingerprint.toUpperCase()}`
           : `${publicKeyHex.slice(0, 12)}…`;
@@ -233,6 +234,8 @@ const MuSig2Round1QRCode: React.FC = () => {
         title: `Vault Key ${index + 1}`,
         subtitle,
         complete,
+        pendingLabel: localReadyToPrepareNonce ? 'Ready to prepare nonce' : localReadyToSign ? 'Ready to sign' : undefined,
+        completeLabel: localMatch && phase === 1 ? 'Nonce prepared' : undefined,
       };
     });
   }, [localSignerByPublicKey, nonceRecords, partialSignatureRecords, phase, round1Psbt.inputCount, signingParticipants]);
@@ -241,10 +244,14 @@ const MuSig2Round1QRCode: React.FC = () => {
   const remainingExternalSignerCount = signerProgress.filter(
     signer => !signer.complete && !localSignerIds.has(signer.id.toLowerCase()),
   ).length;
+  const pendingLocalRound1SignerCount = signerProgress.filter(
+    signer => phase === 1 && !signer.complete && localSignerIds.has(signer.id.toLowerCase()),
+  ).length;
   const pendingLocalSignerCount = signerProgress.filter(
     signer => phase === 2 && !signer.complete && localSignerIds.has(signer.id.toLowerCase()),
   ).length;
   const needsExternalSignerInteraction = remainingExternalSignerCount > 0;
+  const needsLocalRound1Approval = pendingLocalRound1SignerCount > 0;
   const needsLocalRound2Approval = pendingLocalSignerCount > 0;
 
   const transitionTo = useCallback((nextState: MuSig2CoordinatorState, error?: string) => {
@@ -366,16 +373,7 @@ const MuSig2Round1QRCode: React.FC = () => {
   }, [blockedTerminalState, isFocused, phase, sessionReady, showQr]);
 
   useEffect(() => {
-    if (
-      !sessionReady ||
-      blockedTerminalState ||
-      finalization ||
-      !muSig2Wallet ||
-      localSignerMatches.length === 0 ||
-      localRound1Running.current
-    ) {
-      return;
-    }
+    if (!sessionReady || blockedTerminalState || finalization || !muSig2Wallet || localSignerMatches.length === 0) return;
 
     const inputCount = coordinatorPsbt.inputCount;
     const currentNonces = getMuSig2PublicNonces(coordinatorPsbt);
@@ -408,39 +406,39 @@ const MuSig2Round1QRCode: React.FC = () => {
         return;
       }
     }
+  }, [blockedTerminalState, coordinatorPsbt, finalization, localSignerMatches, muSig2Wallet, sessionReady]);
 
-    if (getMuSig2NonceProgress(coordinatorPsbt).complete) return;
-
-    const externalParticipants = signingParticipants.filter(
-      participant => !localSignerIds.has(participant.publicKeyHex.toLowerCase()),
-    );
-    const externalNoncesComplete = externalParticipants.every(
-      participant => participantInputCount(currentNonces, participant.publicKeyHex) === inputCount,
-    );
-    if (!externalNoncesComplete) return;
-
-    const localSignersNeedingRound1 = localSignerMatches.filter(
-      match => participantInputCount(currentNonces, match.participant.publicKeyHex) === 0,
-    );
-    if (localSignersNeedingRound1.length === 0) return;
+  const prepareLocalRound1Nonces = useCallback(() => {
+    if (blockedTerminalState || finalization || phase !== 1 || isPreparingLocalNonces || localRound1Running.current) return;
 
     localRound1Running.current = true;
     setIsPreparingLocalNonces(true);
 
     try {
       let workingPsbt = coordinatorPsbt;
-      for (const match of localSignersNeedingRound1) {
+      const inputCount = workingPsbt.inputCount;
+      const currentNonces = getMuSig2PublicNonces(workingPsbt);
+      const pendingMatches = localSignerMatches.filter(
+        match => participantInputCount(currentNonces, match.participant.publicKeyHex) === 0,
+      );
+
+      if (pendingMatches.length === 0) return;
+
+      for (const match of pendingMatches) {
         const response = createLocalMuSig2Round1Response(workingPsbt, match);
         workingPsbt = mergeMuSig2Round1Psbt(workingPsbt, response.psbt).psbt;
         localNonceStates.current.set(match.participant.publicKeyHex.toLowerCase(), response.nonces);
       }
 
-      if (!getMuSig2NonceProgress(workingPsbt).complete) {
-        throw new Error('Local MuSig2 automation did not produce a complete Round 1 nonce set');
+      for (const match of pendingMatches) {
+        const nonceCount = participantInputCount(getMuSig2PublicNonces(workingPsbt), match.participant.publicKeyHex);
+        if (nonceCount !== inputCount) {
+          throw new Error('Local MuSig2 Round 1 did not produce a complete nonce set for a local signer');
+        }
       }
 
       setCoordinatorPsbtBase64(workingPsbt.toBase64());
-      setCoordinatorState('NONCES_COMPLETE');
+      setCoordinatorState(deriveMuSig2ActiveState(workingPsbt));
       setLastError(undefined);
     } catch (error: any) {
       const message = error?.message ?? String(error);
@@ -453,16 +451,7 @@ const MuSig2Round1QRCode: React.FC = () => {
       localRound1Running.current = false;
       setIsPreparingLocalNonces(false);
     }
-  }, [
-    blockedTerminalState,
-    coordinatorPsbt,
-    finalization,
-    localSignerIds,
-    localSignerMatches,
-    muSig2Wallet,
-    sessionReady,
-    signingParticipants,
-  ]);
+  }, [blockedTerminalState, coordinatorPsbt, finalization, isPreparingLocalNonces, localSignerMatches, phase]);
 
   const signWithBlueWallet = useCallback(() => {
     if (blockedTerminalState || finalization || phase !== 2 || isLocalSigning) return;
@@ -642,7 +631,8 @@ const MuSig2Round1QRCode: React.FC = () => {
       );
       presentAlert({
         title: 'Fresh signing session started',
-        message: 'Discard the old signer session and generate fresh Round 1 nonces on every external signer. Local BlueWallet signers will prepare fresh nonces automatically.',
+        message:
+          'Discard the old signer session and generate fresh Round 1 nonces on every external signer. Local BlueWallet signers will wait for you to tap Sign with BlueWallet before preparing fresh nonces.',
       });
     } catch (error: any) {
       presentAlert({ title: 'Could not restart MuSig2 session', message: error?.message ?? String(error) });
@@ -669,10 +659,15 @@ const MuSig2Round1QRCode: React.FC = () => {
 
     if (phase === 1) {
       if (localSignerMatches.length > 0) {
-        if (needsExternalSignerInteraction) {
-          return `Use Round 1 QR or file for the external signer${remainingExternalSignerCount === 1 ? '' : 's'}. BlueWallet will prepare ${localSignerMatches.length} local signer nonce${localSignerMatches.length === 1 ? '' : 's'} automatically after the external nonces arrive.`;
+        if (needsLocalRound1Approval && needsExternalSignerInteraction) {
+          return `Review the transaction above, then tap Sign with BlueWallet to prepare ${pendingLocalRound1SignerCount} local Round 1 nonce${pendingLocalRound1SignerCount === 1 ? '' : 's'}. Use the Round 1 QR or file for the remaining external signer${remainingExternalSignerCount === 1 ? '' : 's'}.`;
         }
-        return 'Preparing the local Round 1 nonce session. BlueWallet will stop before any local private key signs the transaction.';
+        if (needsLocalRound1Approval) {
+          return `Review the transaction above, then tap Sign with BlueWallet to prepare ${pendingLocalRound1SignerCount} local Round 1 nonce${pendingLocalRound1SignerCount === 1 ? '' : 's'}. No transaction signature is created in Round 1.`;
+        }
+        if (needsExternalSignerInteraction) {
+          return `Local Round 1 nonce${localSignerMatches.length === 1 ? ' is' : 's are'} prepared. Use the Round 1 QR or file for the remaining external signer${remainingExternalSignerCount === 1 ? '' : 's'}.`;
+        }
       }
       return 'Show the same Round 1 PSBT to each signer, then import each response.';
     }
@@ -690,7 +685,9 @@ const MuSig2Round1QRCode: React.FC = () => {
     isPreparingLocalNonces,
     localSignerMatches.length,
     needsExternalSignerInteraction,
+    needsLocalRound1Approval,
     needsLocalRound2Approval,
+    pendingLocalRound1SignerCount,
     pendingLocalSignerCount,
     phase,
     remainingExternalSignerCount,
@@ -853,6 +850,25 @@ const MuSig2Round1QRCode: React.FC = () => {
             {isPreparingLocalNonces ? 'Preparing local Round 1 nonces…' : 'Signing local Vault Keys…'}
           </BlueText>
         </View>
+      )}
+
+      {phase === 1 && needsLocalRound1Approval && (
+        <>
+          <BlueSpacing20 />
+          <Button
+            testID="MuSig2PrepareRound1WithBlueWallet"
+            title="Sign with BlueWallet"
+            onPress={prepareLocalRound1Nonces}
+            showActivityIndicator={isPreparingLocalNonces}
+            disabled={isPreparingLocalNonces}
+            icon={{ name: 'pencil', type: 'font-awesome', color: colors.inverseForegroundColor }}
+            backgroundColor={colors.newBlue}
+            buttonTextColor={colors.inverseForegroundColor}
+          />
+          <BlueText style={[styles.localApprovalNote, stylesHook.helper]}>
+            Round 1 prepares fresh one-time nonces only. BlueWallet will not create them automatically, and no transaction signature is created until Round 2.
+          </BlueText>
+        </>
       )}
 
       {phase === 2 && needsLocalRound2Approval && !isPreparingLocalNonces && (
