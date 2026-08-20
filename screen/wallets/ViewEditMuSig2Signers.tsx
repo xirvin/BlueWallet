@@ -93,7 +93,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const { params } = useRoute<RouteProps>();
-  const { wallets, setWalletsWithNewOrder } = useStorage();
+  const { wallets, setWalletsWithNewOrder, saveToDisk } = useStorage();
   const { isBiometricUseCapableAndEnabled } = useBiometrics();
   const { isPrivacyBlurEnabled } = useSettings();
   const { enableScreenProtect, disableScreenProtect } = useScreenProtect();
@@ -186,6 +186,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
         const watchOnly = createMuSig2WatchOnlySignerWallet(localWallet, participant);
         const nextWallets = wallets.map(wallet => (wallet.getID() === localWallet.getID() ? watchOnly : wallet));
         setWalletsWithNewOrder(nextWallets);
+        await saveToDisk(true);
         presentAlert({
           title: `Vault Key ${participantIndex + 1} is now external`,
           message:
@@ -200,7 +201,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
         setBusyParticipantIndex(undefined);
       }
     },
-    [busyParticipantIndex, isBiometricUseCapableAndEnabled, setWalletsWithNewOrder, wallets],
+    [busyParticipantIndex, isBiometricUseCapableAndEnabled, saveToDisk, setWalletsWithNewOrder, wallets],
   );
 
   const confirmForgetSeed = useCallback(
