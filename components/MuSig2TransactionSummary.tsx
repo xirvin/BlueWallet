@@ -38,61 +38,63 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
 
   return (
     <>
-      <View style={[styles.card, stylesHook.card]} testID="MuSig2TransactionSummary">
-        <View style={styles.row}>
-          <BlueText style={stylesHook.label}>Amount</BlueText>
-          <BlueText bold style={styles.value}>
-            {amountText}
-          </BlueText>
-        </View>
-
-        <View style={[styles.divider, stylesHook.divider]} />
-
-        {summary.recipients.length > 0 ? (
-          summary.recipients.map((recipient, index) => (
-            <React.Fragment key={`${recipient.address}:${index}`}>
-              {index > 0 && <View style={[styles.divider, stylesHook.divider]} />}
-              <View style={styles.row}>
-                <BlueText style={stylesHook.label}>{summary.recipients.length === 1 ? 'To' : `To ${index + 1}`}</BlueText>
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={`View full destination address ${recipient.address}`}
-                  testID={`MuSig2DestinationAddress-${index}`}
-                  activeOpacity={0.7}
-                  style={styles.recipientButton}
-                  onPress={() => setSelectedAddress(recipient.address)}
-                >
-                  <View style={styles.recipientValue}>
-                    <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.address, stylesHook.address]}>
-                      {recipient.address}
-                    </BlueText>
-                    {summary.recipients.length > 1 && (
-                      <BlueText style={[styles.recipientAmount, stylesHook.recipientAmount]}>
-                        {formatMuSig2Btc(recipient.valueSats)}
-                      </BlueText>
-                    )}
-                  </View>
-                  <Icon name="external-link" type="font-awesome" size={14} color={colors.newBlue} />
-                </TouchableOpacity>
-              </View>
-            </React.Fragment>
-          ))
-        ) : (
+      {!verified && (
+        <View style={[styles.card, stylesHook.card]} testID="MuSig2TransactionSummary">
           <View style={styles.row}>
-            <BlueText style={stylesHook.label}>To</BlueText>
-            <BlueText style={styles.value}>No external recipient</BlueText>
+            <BlueText style={stylesHook.label}>Amount</BlueText>
+            <BlueText bold style={styles.value}>
+              {amountText}
+            </BlueText>
           </View>
-        )}
 
-        <View style={[styles.divider, stylesHook.divider]} />
+          <View style={[styles.divider, stylesHook.divider]} />
 
-        <View style={styles.row}>
-          <BlueText style={stylesHook.label}>Fee</BlueText>
-          <BlueText bold style={styles.value}>
-            {formatMuSig2Sats(summary.feeSats)}
-          </BlueText>
+          {summary.recipients.length > 0 ? (
+            summary.recipients.map((recipient, index) => (
+              <React.Fragment key={`${recipient.address}:${index}`}>
+                {index > 0 && <View style={[styles.divider, stylesHook.divider]} />}
+                <View style={styles.row}>
+                  <BlueText style={stylesHook.label}>{summary.recipients.length === 1 ? 'To' : `To ${index + 1}`}</BlueText>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`View full destination address ${recipient.address}`}
+                    testID={`MuSig2DestinationAddress-${index}`}
+                    activeOpacity={0.7}
+                    style={styles.recipientButton}
+                    onPress={() => setSelectedAddress(recipient.address)}
+                  >
+                    <View style={styles.recipientValue}>
+                      <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.address, stylesHook.address]}>
+                        {recipient.address}
+                      </BlueText>
+                      {summary.recipients.length > 1 && (
+                        <BlueText style={[styles.recipientAmount, stylesHook.recipientAmount]}>
+                          {formatMuSig2Btc(recipient.valueSats)}
+                        </BlueText>
+                      )}
+                    </View>
+                    <Icon name="external-link" type="font-awesome" size={14} color={colors.newBlue} />
+                  </TouchableOpacity>
+                </View>
+              </React.Fragment>
+            ))
+          ) : (
+            <View style={styles.row}>
+              <BlueText style={stylesHook.label}>To</BlueText>
+              <BlueText style={styles.value}>No external recipient</BlueText>
+            </View>
+          )}
+
+          <View style={[styles.divider, stylesHook.divider]} />
+
+          <View style={styles.row}>
+            <BlueText style={stylesHook.label}>Fee</BlueText>
+            <BlueText bold style={styles.value}>
+              {formatMuSig2Sats(summary.feeSats)}
+            </BlueText>
+          </View>
         </View>
-      </View>
+      )}
 
       {verified && (
         <View style={[styles.verifiedCard, stylesHook.verifiedCard]} testID="MuSig2TransactionSummaryVerified">
