@@ -127,7 +127,7 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.44)' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.44)' },
   sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
