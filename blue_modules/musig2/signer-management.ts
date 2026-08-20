@@ -18,6 +18,8 @@ function copyPublicTaprootWalletState(source: HDTaprootWallet, target: HDTaproot
   target.next_free_change_address_index = source.next_free_change_address_index;
   target.external_addresses_cache = { ...source.external_addresses_cache };
   target.internal_addresses_cache = { ...source.internal_addresses_cache };
+  target._balances_by_external_index = { ...source._balances_by_external_index };
+  target._balances_by_internal_index = { ...source._balances_by_internal_index };
   target._txs_by_external_index = { ...source._txs_by_external_index };
   target._txs_by_internal_index = { ...source._txs_by_internal_index };
   target._utxo = [...source._utxo];
