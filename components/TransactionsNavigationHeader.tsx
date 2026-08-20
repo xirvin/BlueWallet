@@ -25,6 +25,7 @@ import { FiatUnit } from '../models/fiatUnit';
 import ActionSheet from '../screen/ActionSheet';
 import presentAlert from './Alert';
 import { BlurredBalanceView } from './BlurredBalanceView';
+import MuSig2SessionOptionsSheet from './MuSig2SessionOptionsSheet';
 import ToolTipMenu from './TooltipMenu';
 import { useSettings } from '../hooks/context/useSettings';
 import { useTheme } from './themes';
@@ -44,7 +45,14 @@ interface TransactionsNavigationHeaderProps {
   unitSwitching?: boolean;
 }
 
-function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): { title: string; subtitle: string } {
+type MuSig2SessionDescription = {
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  progressLabel: string;
+};
+
+function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): MuSig2SessionDescription {
   try {
     const psbt = Psbt.fromBase64(session.coordinatorPsbtBase64);
     const nonceProgress = getMuSig2NonceProgress(psbt);
@@ -53,6 +61,8 @@ function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): { titl
       return {
         title: 'MuSig2 signing · Round 1',
         subtitle: `${nonceProgress.collected}/${nonceProgress.expected} public nonces · Tap for options`,
+        statusLabel: 'Round 1',
+        progressLabel: `${nonceProgress.collected}/${nonceProgress.expected} public nonces collected`,
       };
     }
 
@@ -61,17 +71,23 @@ function describeMuSig2Session(session: MuSig2CoordinatorSessionSummary): { titl
       return {
         title: 'MuSig2 signing · Ready to finalize',
         subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap for options`,
+        statusLabel: 'Ready to finalize',
+        progressLabel: `${partialProgress.collected}/${partialProgress.expected} partial signatures collected`,
       };
     }
 
     return {
       title: 'MuSig2 signing · Round 2',
       subtitle: `${partialProgress.collected}/${partialProgress.expected} partial signatures · Tap for options`,
+      statusLabel: 'Round 2',
+      progressLabel: `${partialProgress.collected}/${partialProgress.expected} partial signatures collected`,
     };
   } catch {
     return {
       title: 'MuSig2 signing session',
       subtitle: 'Saved signing session · Tap for options',
+      statusLabel: 'Pending',
+      progressLabel: 'Saved signing session',
     };
   }
 }
@@ -91,9 +107,15 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
   const isMuSig2Vault = wallet.type === HDTaprootMuSig2Wallet.type;
   const [allowOnchainAddress, setAllowOnchainAddress] = useState(isLightningWallet);
   const [muSig2Sessions, setMuSig2Sessions] = useState<MuSig2CoordinatorSessionSummary[]>([]);
+  const [selectedMuSig2Session, setSelectedMuSig2Session] = useState<MuSig2CoordinatorSessionSummary>();
   const { preferredFiatCurrency } = useSettings();
   const { direction } = useLocale();
   const navigation = useNavigation();
+
+  const selectedMuSig2Description = useMemo(
+    () => (selectedMuSig2Session ? describeMuSig2Session(selectedMuSig2Session) : undefined),
+    [selectedMuSig2Session],
+  );
 
   const verifyIfWalletAllowsOnchainAddress = useCallback(() => {
     if (isLightningWallet) {
@@ -191,6 +213,7 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
 
   const resumeMuSig2Session = useCallback(
     (session: MuSig2CoordinatorSessionSummary) => {
+      setSelectedMuSig2Session(undefined);
       (navigation as any).navigate('SendDetailsRoot', {
         screen: 'MuSig2Round1QRCode',
         params: {
@@ -204,6 +227,7 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
 
   const restartMuSig2Session = useCallback(
     (session: MuSig2CoordinatorSessionSummary) => {
+      setSelectedMuSig2Session(undefined);
       presentAlert({
         title: 'Restart MuSig2 signing session?',
         message: 'Collected nonces and partial signatures will be discarded. Every signer must begin again from Round 1.',
@@ -233,6 +257,7 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
 
   const cancelMuSig2Session = useCallback(
     (session: MuSig2CoordinatorSessionSummary) => {
+      setSelectedMuSig2Session(undefined);
       presentAlert({
         title: 'Cancel MuSig2 signing session?',
         message: 'This pending signing session will be removed. No transaction will be broadcast.',
@@ -257,25 +282,6 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
       });
     },
     [wallet],
-  );
-
-  const showMuSig2SessionOptions = useCallback(
-    (session: MuSig2CoordinatorSessionSummary) => {
-      ActionSheet.showActionSheetWithOptions(
-        {
-          title: 'Signing session options',
-          options: ['Resume', 'Restart', 'Cancel session', 'Dismiss'],
-          destructiveButtonIndex: 2,
-          cancelButtonIndex: 3,
-        },
-        buttonIndex => {
-          if (buttonIndex === 0) resumeMuSig2Session(session);
-          else if (buttonIndex === 1) restartMuSig2Session(session);
-          else if (buttonIndex === 2) cancelMuSig2Session(session);
-        },
-      );
-    },
-    [cancelMuSig2Session, restartMuSig2Session, resumeMuSig2Session],
   );
 
   const startMuSig2DryRun = useCallback(() => {
@@ -401,7 +407,7 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
                   accessibilityRole="button"
                   accessibilityLabel={`${description.title}. ${description.subtitle}`}
                   style={styles.signingSessionRow}
-                  onPress={() => showMuSig2SessionOptions(session)}
+                  onPress={() => setSelectedMuSig2Session(session)}
                 >
                   <View style={styles.signingSessionText}>
                     <Text style={styles.signingSessionTitle}>{description.title}</Text>
@@ -414,6 +420,17 @@ const TransactionsNavigationHeader: React.FC<TransactionsNavigationHeaderProps> 
           </View>
         )}
       </View>
+
+      <MuSig2SessionOptionsSheet
+        visible={Boolean(selectedMuSig2Session)}
+        statusLabel={selectedMuSig2Description?.statusLabel ?? 'Pending'}
+        progressLabel={selectedMuSig2Description?.progressLabel ?? 'Saved signing session'}
+        onClose={() => setSelectedMuSig2Session(undefined)}
+        onResume={() => selectedMuSig2Session && resumeMuSig2Session(selectedMuSig2Session)}
+        onRestart={() => selectedMuSig2Session && restartMuSig2Session(selectedMuSig2Session)}
+        onCancelSession={() => selectedMuSig2Session && cancelMuSig2Session(selectedMuSig2Session)}
+      />
+
       <View style={styles.bottomBarSpacer}>
         <View
           style={[
