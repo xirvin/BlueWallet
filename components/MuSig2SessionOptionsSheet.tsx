@@ -108,7 +108,10 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
             testID="MuSig2SessionCancel"
             accessibilityRole="button"
             activeOpacity={0.75}
-            style={[styles.destructiveButton, { backgroundColor: colors.redBG }]}
+            style={[
+              styles.destructiveButton,
+              { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground },
+            ]}
             onPress={onCancelSession}
           >
             <Icon name="trash" type="font-awesome" size={15} color={colors.redText} />
@@ -163,6 +166,7 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
   destructiveButton: {
     minHeight: 64,
+    borderWidth: 1,
     borderRadius: 15,
     paddingHorizontal: 15,
     paddingVertical: 10,
