@@ -36,7 +36,7 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
           onPress={onClose}
         />
 
-        <SafeAreaView style={[styles.sheet, { backgroundColor: colors.elevated }]}> 
+        <SafeAreaView style={[styles.sheet, { backgroundColor: colors.elevated }]}>
           <View style={styles.grabberContainer}>
             <View style={[styles.grabber, { backgroundColor: colors.cardBorderColor }]} />
           </View>
@@ -57,10 +57,10 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.sessionCard, { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor }]}> 
+          <View style={[styles.sessionCard, { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor }]}>
             <View style={styles.statusRow}>
               <View style={[styles.statusDot, { backgroundColor: colors.newBlue }]} />
-              <View style={[styles.statusPill, { backgroundColor: colors.newBlue }]}> 
+              <View style={[styles.statusPill, { backgroundColor: colors.newBlue }]}>
                 <BlueText style={[styles.statusPillText, { color: colors.inverseForegroundColor }]}>{statusLabel}</BlueText>
               </View>
             </View>
