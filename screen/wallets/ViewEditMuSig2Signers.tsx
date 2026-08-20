@@ -2,13 +2,20 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Psbt } from 'bitcoinjs-lib';
 
-import { encodeUR } from '../../blue_modules/ur';
+import {
+  listMuSig2CoordinatorSessions,
+  saveMuSig2CoordinatorSession,
+} from '../../blue_modules/musig2/coordinator-session';
 import { getLocalMuSig2SignerMatches } from '../../blue_modules/musig2/local-signer';
+import { getMuSig2PublicNonces } from '../../blue_modules/musig2/psbt';
+import { getMuSig2PartialSignatures } from '../../blue_modules/musig2/round2';
 import {
   createMuSig2WatchOnlySignerWallet,
   watchOnlyWalletMatchesMuSig2Participant,
 } from '../../blue_modules/musig2/signer-management';
+import { encodeUR } from '../../blue_modules/ur';
 import { MultisigCosigner } from '../../class/multisig-cosigner';
 import { HDTaprootMuSig2Wallet, MuSig2ParticipantMetadata } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
@@ -21,10 +28,10 @@ import MultipleStepsListItem, {
   MultipleStepsListItemDashType,
 } from '../../components/MultipleStepsListItem';
 import { useTheme } from '../../components/themes';
-import { unlockWithBiometrics, useBiometrics } from '../../hooks/useBiometrics';
-import { useScreenProtect } from '../../hooks/useScreenProtect';
 import { useSettings } from '../../hooks/context/useSettings';
 import { useStorage } from '../../hooks/context/useStorage';
+import { unlockWithBiometrics, useBiometrics } from '../../hooks/useBiometrics';
+import { useScreenProtect } from '../../hooks/useScreenProtect';
 import { DetailViewStackParamList } from '../../navigation/DetailViewStackParamList';
 
 type RouteProps = RouteProp<DetailViewStackParamList, 'ViewEditMuSig2Signers'>;
@@ -34,6 +41,53 @@ const shortXpub = (xpub?: string): string => {
   if (!xpub) return 'Public signer';
   return `${xpub.slice(0, 8)}…${xpub.slice(-8)}`;
 };
+
+const bytesToHex = (bytes: Uint8Array): string => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+
+async function resetUnsafePendingSessions(walletID: string, participant: MuSig2ParticipantMetadata): Promise<number> {
+  const participantPublicKey = participant.publicKeyHex.toLowerCase();
+  const sessions = await listMuSig2CoordinatorSessions(walletID);
+  let resetCount = 0;
+
+  for (const session of sessions) {
+    if (session.state === 'SIGNATURES_COMPLETE') continue;
+
+    let shouldReset = false;
+    try {
+      const coordinatorPsbt = Psbt.fromBase64(session.coordinatorPsbtBase64);
+      const nonceInputs = new Set(
+        getMuSig2PublicNonces(coordinatorPsbt)
+          .filter(record => bytesToHex(record.participantPublicKey) === participantPublicKey)
+          .map(record => record.inputIndex),
+      );
+      const signedInputs = new Set(
+        getMuSig2PartialSignatures(coordinatorPsbt)
+          .filter(record => bytesToHex(record.participantPublicKey) === participantPublicKey)
+          .map(record => record.inputIndex),
+      );
+      shouldReset = [...nonceInputs].some(inputIndex => !signedInputs.has(inputIndex));
+    } catch {
+      // If persisted progress cannot be inspected reliably, reset any session
+      // that moved beyond its initial CREATED state before removing the seed.
+      shouldReset = session.state !== 'CREATED';
+    }
+
+    if (!shouldReset) continue;
+
+    const round1Psbt = Psbt.fromBase64(session.round1PsbtBase64);
+    await saveMuSig2CoordinatorSession(
+      walletID,
+      round1Psbt,
+      'COLLECTING_NONCES',
+      session.round1PsbtBase64,
+      undefined,
+      'Signer seed availability changed. Fresh Round 1 nonces are required.',
+    );
+    resetCount += 1;
+  }
+
+  return resetCount;
+}
 
 const ViewEditMuSig2Signers: React.FC = () => {
   const { colors } = useTheme();
@@ -117,12 +171,17 @@ const ViewEditMuSig2Signers: React.FC = () => {
           if (!(await unlockWithBiometrics())) return;
         }
 
+        const resetSessionCount = await resetUnsafePendingSessions(params.walletID, participant);
         const watchOnly = createMuSig2WatchOnlySignerWallet(localWallet, participant);
         const nextWallets = wallets.map(wallet => (wallet.getID() === localWallet.getID() ? watchOnly : wallet));
         setWalletsWithNewOrder(nextWallets);
         presentAlert({
           title: `Vault Key ${participantIndex + 1} is now external`,
-          message: 'The seed was removed from BlueWallet and replaced with its public Taproot xpub. The MuSig2 vault and descriptor remain unchanged.',
+          message:
+            `The seed was removed from BlueWallet and replaced with its public Taproot xpub. The MuSig2 vault and descriptor remain unchanged.` +
+            (resetSessionCount > 0
+              ? ` ${resetSessionCount} pending ${resetSessionCount === 1 ? 'transfer was' : 'transfers were'} reset to fresh Round 1 for nonce safety.`
+              : ''),
         });
       } catch (error: any) {
         presentAlert({ title: 'Could not forget signer seed', message: error?.message ?? String(error) });
@@ -130,7 +189,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
         setBusyParticipantIndex(undefined);
       }
     },
-    [busyParticipantIndex, isBiometricUseCapableAndEnabled, setWalletsWithNewOrder, wallets],
+    [busyParticipantIndex, isBiometricUseCapableAndEnabled, params.walletID, setWalletsWithNewOrder, wallets],
   );
 
   const confirmForgetSeed = useCallback(
@@ -138,7 +197,7 @@ const ViewEditMuSig2Signers: React.FC = () => {
       presentAlert({
         title: 'Forget this seed and use xpub?',
         message:
-          'BlueWallet will permanently remove the mnemonic and BIP39 passphrase for this Taproot signer and keep an xpub-only watch-only wallet instead. This device will no longer sign for this Vault Key. If the same signer is used by another MuSig2 vault or holds standalone funds, those will also become watch-only until the seed is imported again. The MuSig2 vault, addresses, descriptor, and export data remain unchanged.',
+          'BlueWallet will permanently remove the mnemonic and BIP39 passphrase for this Taproot signer and keep an xpub-only watch-only wallet instead. This device will no longer sign for this Vault Key. If the same signer is used by another MuSig2 vault or holds standalone funds, those will also become watch-only until the seed is imported again. The MuSig2 vault, addresses, descriptor, and export data remain unchanged. Any pending transfer that contains an unconsumed nonce for this signer will be reset to fresh Round 1.',
         buttons: [
           { text: 'Keep seed', style: 'cancel' },
           {
