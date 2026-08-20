@@ -102,8 +102,6 @@ const MuSig2SessionOptionsSheet: React.FC<Props> = ({
             </View>
           </TouchableOpacity>
 
-          <View style={[styles.divider, { backgroundColor: colors.cardBorderColor }]} />
-
           <TouchableOpacity
             testID="MuSig2SessionCancel"
             accessibilityRole="button"
@@ -163,13 +161,13 @@ const styles = StyleSheet.create({
   buttonLeading: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   buttonCopy: { flex: 1, marginLeft: 12 },
   buttonDescription: { marginTop: 3, fontSize: 11, lineHeight: 15 },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
   destructiveButton: {
     minHeight: 64,
     borderWidth: 1,
     borderRadius: 15,
     paddingHorizontal: 15,
     paddingVertical: 10,
+    marginTop: 11,
     flexDirection: 'row',
     alignItems: 'center',
   },
