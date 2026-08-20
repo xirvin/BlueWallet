@@ -1,9 +1,14 @@
+import { RouteProp, useRoute } from '@react-navigation/native';
+import { Psbt } from 'bitcoinjs-lib';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
+import { getMuSig2TransactionSummary } from '../blue_modules/musig2/transaction-summary';
+import { SendDetailsStackParamList } from '../navigation/SendDetailsStackParamList';
 import BlueText from './BlueText';
 import Icon from './Icon';
+import MuSig2TransactionSummary from './MuSig2TransactionSummary';
 import { useTheme } from './themes';
 
 export type MuSig2SignerProgressItem = {
@@ -28,11 +33,20 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, label, signers }) => {
   const { colors } = useTheme();
+  const { params } = useRoute<RouteProp<SendDetailsStackParamList, 'MuSig2Round1QRCode'>>();
   const pulse = useRef(new Animated.Value(0)).current;
   const pop = useRef(new Animated.Value(1)).current;
   const complete = expected > 0 && collected >= expected;
   const fraction = expected > 0 ? Math.min(1, collected / expected) : 0;
   const ringColor = complete ? colors.successColor : colors.newBlue;
+  const transactionSummary = useMemo(() => {
+    try {
+      return getMuSig2TransactionSummary(Psbt.fromBase64(params.psbtBase64));
+    } catch (error) {
+      if (__DEV__) console.log('[MuSig2] transaction summary unavailable:', error);
+      return undefined;
+    }
+  }, [params.psbtBase64]);
 
   useEffect(() => {
     pop.setValue(0.94);
@@ -124,6 +138,14 @@ const MuSig2SigningProgress: React.FC<Props> = ({ phase, collected, expected, la
           </React.Fragment>
         ))}
       </View>
+
+      {transactionSummary && (
+        <MuSig2TransactionSummary
+          summary={transactionSummary}
+          isDryRun={params.isDryRun === true}
+          verified={phase === 3}
+        />
+      )}
 
       <View style={styles.progressArea}>
         <View style={styles.ringContainer}>
