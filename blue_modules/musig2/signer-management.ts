@@ -38,8 +38,13 @@ export function muSig2ParticipantKeyExpression(participant: MuSig2ParticipantMet
 }
 
 export function watchOnlyWalletMatchesMuSig2Participant(wallet: WatchOnlyWallet, participant: MuSig2ParticipantMetadata): boolean {
-  if (!participant.xpub || !participant.derivationPath) return false;
-  return wallet.getSecret() === participant.xpub && wallet._derivationPath === participant.derivationPath && wallet.segwitType === 'p2tr';
+  if (!participant.xpub || !participant.masterFingerprint || !participant.derivationPath) return false;
+  return (
+    wallet.getSecret() === participant.xpub &&
+    wallet.getMasterFingerprintHex().toLowerCase() === participant.masterFingerprint.toLowerCase() &&
+    wallet._derivationPath === participant.derivationPath &&
+    wallet.segwitType === 'p2tr'
+  );
 }
 
 export function createMuSig2WatchOnlySignerWallet(
