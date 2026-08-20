@@ -22,7 +22,6 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
   const [selectedAddress, setSelectedAddress] = useState<string>();
   const stylesHook = StyleSheet.create({
     card: { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor },
-    divider: { backgroundColor: colors.cardBorderColor },
     label: { color: colors.alternativeTextColor },
     recipientAmount: { color: colors.alternativeTextColor },
     address: { color: colors.newBlue },
@@ -40,56 +39,58 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
     <>
       {!verified && (
         <View style={[styles.card, stylesHook.card]} testID="MuSig2TransactionSummary">
-          <View style={styles.row}>
-            <BlueText style={stylesHook.label}>Amount</BlueText>
-            <BlueText bold style={styles.value}>
+          <View style={styles.summaryRow}>
+            <View style={styles.iconSpacer} />
+            <BlueText style={[styles.summaryLabel, stylesHook.label]}>Amount</BlueText>
+            <BlueText bold style={styles.summaryValue}>
               {amountText}
             </BlueText>
           </View>
 
-          <View style={[styles.divider, stylesHook.divider]} />
-
           {summary.recipients.length > 0 ? (
             summary.recipients.map((recipient, index) => (
-              <React.Fragment key={`${recipient.address}:${index}`}>
-                {index > 0 && <View style={[styles.divider, stylesHook.divider]} />}
-                <View style={styles.row}>
-                  <BlueText style={stylesHook.label}>{summary.recipients.length === 1 ? 'To' : `To ${index + 1}`}</BlueText>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={`View full destination address ${recipient.address}`}
-                    testID={`MuSig2DestinationAddress-${index}`}
-                    activeOpacity={0.7}
-                    style={styles.recipientButton}
-                    onPress={() => setSelectedAddress(recipient.address)}
-                  >
-                    <View style={styles.recipientValue}>
-                      <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.address, stylesHook.address]}>
-                        {recipient.address}
-                      </BlueText>
-                      {summary.recipients.length > 1 && (
-                        <BlueText style={[styles.recipientAmount, stylesHook.recipientAmount]}>
-                          {formatMuSig2Btc(recipient.valueSats)}
-                        </BlueText>
-                      )}
-                    </View>
-                    <Icon name="external-link" type="font-awesome" size={14} color={colors.newBlue} />
-                  </TouchableOpacity>
-                </View>
-              </React.Fragment>
+              <TouchableOpacity
+                key={`${recipient.address}:${index}`}
+                accessibilityRole="button"
+                accessibilityLabel={`View full destination address ${recipient.address}`}
+                testID={`MuSig2DestinationAddress-${index}`}
+                activeOpacity={0.7}
+                style={styles.summaryRow}
+                onPress={() => setSelectedAddress(recipient.address)}
+              >
+                <View style={styles.iconSpacer} />
+                <BlueText style={[styles.summaryLabel, stylesHook.label]}>
+                  {summary.recipients.length === 1 ? 'To' : `To ${index + 1}`}
+                </BlueText>
+                {summary.recipients.length === 1 ? (
+                  <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.summaryValue, stylesHook.address]}>
+                    {recipient.address}
+                  </BlueText>
+                ) : (
+                  <View style={styles.recipientValue}>
+                    <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.address, stylesHook.address]}>
+                      {recipient.address}
+                    </BlueText>
+                    <BlueText style={[styles.recipientAmount, stylesHook.recipientAmount]}>
+                      {formatMuSig2Btc(recipient.valueSats)}
+                    </BlueText>
+                  </View>
+                )}
+                <Icon name="external-link" type="font-awesome" size={12} color={colors.newBlue} />
+              </TouchableOpacity>
             ))
           ) : (
-            <View style={styles.row}>
-              <BlueText style={stylesHook.label}>To</BlueText>
-              <BlueText style={styles.value}>No external recipient</BlueText>
+            <View style={styles.summaryRow}>
+              <View style={styles.iconSpacer} />
+              <BlueText style={[styles.summaryLabel, stylesHook.label]}>To</BlueText>
+              <BlueText style={styles.summaryValue}>No external recipient</BlueText>
             </View>
           )}
 
-          <View style={[styles.divider, stylesHook.divider]} />
-
-          <View style={styles.row}>
-            <BlueText style={stylesHook.label}>Fee</BlueText>
-            <BlueText bold style={styles.value}>
+          <View style={styles.summaryRow}>
+            <View style={styles.iconSpacer} />
+            <BlueText style={[styles.summaryLabel, stylesHook.label]}>Fee</BlueText>
+            <BlueText bold style={styles.summaryValue}>
               {formatMuSig2Sats(summary.feeSats)}
             </BlueText>
           </View>
@@ -98,10 +99,10 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
 
       {verified && (
         <View style={[styles.verifiedCard, stylesHook.verifiedCard]} testID="MuSig2TransactionSummaryVerified">
-          <View style={styles.verifiedRow}>
+          <View style={styles.summaryRow}>
             <Icon name="check-circle" type="font-awesome" size={15} color={colors.successColor} />
-            <BlueText style={styles.verifiedLabel}>Amount verified</BlueText>
-            <BlueText bold style={styles.verifiedValue}>
+            <BlueText style={styles.summaryLabel}>Amount verified</BlueText>
+            <BlueText bold style={styles.summaryValue}>
               {amountText}
             </BlueText>
           </View>
@@ -109,22 +110,22 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
             accessibilityRole={summary.recipients.length === 1 ? 'button' : undefined}
             activeOpacity={summary.recipients.length === 1 ? 0.7 : 1}
             disabled={summary.recipients.length !== 1}
-            style={styles.verifiedRow}
+            style={styles.summaryRow}
             onPress={() => summary.recipients.length === 1 && setSelectedAddress(summary.recipients[0].address)}
           >
             <Icon name="check-circle" type="font-awesome" size={15} color={colors.successColor} />
-            <BlueText style={styles.verifiedLabel}>Destination verified</BlueText>
-            <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.verifiedValue, stylesHook.address]}>
+            <BlueText style={styles.summaryLabel}>Destination verified</BlueText>
+            <BlueText numberOfLines={1} ellipsizeMode="middle" style={[styles.summaryValue, stylesHook.address]}>
               {summary.recipients.length === 1 ? summary.recipients[0].address : `${summary.recipients.length} recipients`}
             </BlueText>
             {summary.recipients.length === 1 && (
               <Icon name="external-link" type="font-awesome" size={12} color={colors.newBlue} />
             )}
           </TouchableOpacity>
-          <View style={styles.verifiedRow}>
+          <View style={styles.summaryRow}>
             <Icon name="check-circle" type="font-awesome" size={15} color={colors.successColor} />
-            <BlueText style={styles.verifiedLabel}>Fee verified</BlueText>
-            <BlueText bold style={styles.verifiedValue}>
+            <BlueText style={styles.summaryLabel}>Fee verified</BlueText>
+            <BlueText bold style={styles.summaryValue}>
               {formatMuSig2Sats(summary.feeSats)}
             </BlueText>
           </View>
@@ -188,18 +189,15 @@ const MuSig2TransactionSummary: React.FC<Props> = ({ summary, isDryRun = false, 
 };
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: 14, overflow: 'hidden', marginBottom: 18 },
-  row: { minHeight: 48, paddingHorizontal: 16, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
-  value: { flex: 1, textAlign: 'right', fontSize: 14 },
-  divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
-  recipientButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 9 },
-  recipientValue: { flex: 1, alignItems: 'flex-end' },
-  address: { width: '100%', textAlign: 'right', fontSize: 12, fontWeight: '600' },
-  recipientAmount: { marginTop: 3, fontSize: 11 },
+  card: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 18 },
   verifiedCard: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 18 },
-  verifiedRow: { minHeight: 31, flexDirection: 'row', alignItems: 'center' },
-  verifiedLabel: { marginLeft: 8, fontSize: 12, flex: 1 },
-  verifiedValue: { maxWidth: '48%', textAlign: 'right', fontSize: 12, marginRight: 6 },
+  summaryRow: { minHeight: 31, flexDirection: 'row', alignItems: 'center' },
+  iconSpacer: { width: 15 },
+  summaryLabel: { marginLeft: 8, fontSize: 12, flex: 1 },
+  summaryValue: { maxWidth: '48%', textAlign: 'right', fontSize: 12, marginRight: 6 },
+  recipientValue: { maxWidth: '48%', flex: 1, alignItems: 'flex-end', marginRight: 6 },
+  address: { width: '100%', textAlign: 'right', fontSize: 12, fontWeight: '600' },
+  recipientAmount: { marginTop: 2, fontSize: 11 },
   modalRoot: { flex: 1 },
   modalHeader: { minHeight: 58, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14 },
   backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
