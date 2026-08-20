@@ -30,7 +30,7 @@ describe('MuSig2 signer management', () => {
     vault.setParticipantKeyExpressions([signerAExpression, taprootWalletToMuSig2KeyExpression(signerB)]);
 
     const receiveAddress = signerA._getExternalAddressByIndex(0);
-    signerA.balance = 12345;
+    signerA._balances_by_external_index = { 0: { c: 12345, u: 0 } };
     signerA.next_free_address_index = 3;
 
     const watchOnly = createMuSig2WatchOnlySignerWallet(signerA, participantA);
@@ -59,7 +59,7 @@ describe('MuSig2 signer management', () => {
   it('restores the exact signer seed and preserves xpub-only public wallet state', () => {
     const original = createMuSig2TaprootSignerWallet(MNEMONIC_A, PASSPHRASE_A);
     original.setLabel('Vault signer A');
-    original.balance = 98765;
+    original._balances_by_external_index = { 0: { c: 98765, u: 0 } };
     original.next_free_address_index = 4;
     const participant = normalizeMuSig2VaultSigner(taprootWalletToMuSig2KeyExpression(original)).participant;
     const watchOnly = createMuSig2WatchOnlySignerWallet(original, participant);
