@@ -98,6 +98,13 @@ function discardLocalNonceStates(store: Map<string, LocalMuSig2NonceState[]>): v
   store.clear();
 }
 
+function hasLiveLocalNonceStates(store: Map<string, LocalMuSig2NonceState[]>): boolean {
+  for (const states of store.values()) {
+    if (states.some(state => !state.secretNonce.isConsumed())) return true;
+  }
+  return false;
+}
+
 function isSyntheticDryRunPsbt(psbt: bitcoin.Psbt): boolean {
   try {
     const tx = bitcoin.Transaction.fromBuffer(psbt.data.globalMap.unsignedTx.toBuffer());
@@ -139,6 +146,7 @@ const MuSig2Round1QRCode: React.FC = () => {
   const dynamicQRCode = useRef<DynamicQRCode>(null);
   const persistenceWarningShown = useRef(false);
   const localRound1Running = useRef(false);
+  const sessionClosing = useRef(false);
   const localNonceStates = useRef<Map<string, LocalMuSig2NonceState[]>>(new Map());
   const isFocused = useIsFocused();
   const [isSaving, setIsSaving] = useState(false);
@@ -334,7 +342,7 @@ const MuSig2Round1QRCode: React.FC = () => {
   }, [psbtBase64, round1Psbt, walletID]);
 
   useEffect(() => {
-    if (!sessionReady) return;
+    if (!sessionReady || sessionClosing.current) return;
 
     saveMuSig2CoordinatorSession(
       walletID,
@@ -597,23 +605,73 @@ const MuSig2Round1QRCode: React.FC = () => {
     }
   }, [finalization, isBroadcasting, isDryRun, navigation]);
 
-  const cancelSigningSession = useCallback(() => {
-    presentAlert({
-      title: 'Cancel MuSig2 signing session?',
-      message: 'Any collected nonce session will be abandoned. Every signer must generate fresh nonces before signing again.',
-      buttons: [
-        { text: 'Keep signing', style: 'cancel' },
-        {
-          text: 'Cancel session',
-          style: 'destructive',
-          onPress: () => {
-            discardLocalNonceStates(localNonceStates.current);
-            transitionTo('CANCELLED', 'Signing session cancelled by user');
+  const returnToWalletView = useCallback(() => {
+    const parent = navigation.getParent();
+    if (parent?.canGoBack()) {
+      parent.goBack();
+      return;
+    }
+    if (navigation.canGoBack()) navigation.goBack();
+  }, [navigation]);
+
+  const persistAndCloseSession = useCallback(
+    async (resetToFreshRound1: boolean) => {
+      if (sessionClosing.current) return;
+      sessionClosing.current = true;
+      dynamicQRCode.current?.stopAutoMove();
+
+      try {
+        if (resetToFreshRound1) {
+          discardLocalNonceStates(localNonceStates.current);
+          await saveMuSig2CoordinatorSession(
+            walletID,
+            round1Psbt,
+            'COLLECTING_NONCES',
+            psbtBase64,
+            undefined,
+            'Local one-time nonce state was discarded when the session was closed. Fresh Round 1 is required.',
+          );
+        } else {
+          await saveMuSig2CoordinatorSession(
+            walletID,
+            round1Psbt,
+            coordinatorState,
+            coordinatorPsbtBase64,
+            coordinatorState === 'FINALIZED' ? finalization : undefined,
+            lastError,
+          );
+          discardLocalNonceStates(localNonceStates.current);
+        }
+        returnToWalletView();
+      } catch (error: any) {
+        sessionClosing.current = false;
+        presentAlert({ title: 'Could not close MuSig2 session', message: error?.message ?? String(error) });
+      }
+    },
+    [coordinatorPsbtBase64, coordinatorState, finalization, lastError, psbtBase64, returnToWalletView, round1Psbt, walletID],
+  );
+
+  const closeSigningSession = useCallback(() => {
+    if (hasLiveLocalNonceStates(localNonceStates.current)) {
+      presentAlert({
+        title: 'Close session and reset Round 1?',
+        message:
+          'This session has a local BlueWallet one-time nonce that exists only in memory. Closing cannot safely preserve that nonce. The transaction will remain pending, but signing progress will reset to fresh Round 1.',
+        buttons: [
+          { text: 'Keep signing', style: 'cancel' },
+          {
+            text: 'Close & reset Round 1',
+            onPress: () => {
+              void persistAndCloseSession(true);
+            },
           },
-        },
-      ],
-    });
-  }, [transitionTo]);
+        ],
+      });
+      return;
+    }
+
+    void persistAndCloseSession(false);
+  }, [persistAndCloseSession]);
 
   const restartSigningSession = useCallback(async () => {
     try {
@@ -701,6 +759,7 @@ const MuSig2Round1QRCode: React.FC = () => {
     helperCard: { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor },
     secondaryButton: { backgroundColor: colors.buttonDisabledBackgroundColor },
     secondaryButtonText: { color: colors.foregroundColor },
+    closeSessionText: { color: colors.newBlue },
     warningCard: { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor },
     warning: { color: colors.redText },
     successCard: { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor },
@@ -811,6 +870,15 @@ const MuSig2Round1QRCode: React.FC = () => {
             </SaveFileButton>
           </>
         )}
+
+        <TouchableOpacity
+          testID="MuSig2CloseSession"
+          accessibilityRole="button"
+          onPress={closeSigningSession}
+          style={styles.closeSessionButton}
+        >
+          <BlueText style={[styles.closeSessionText, stylesHook.closeSessionText]}>Close session</BlueText>
+        </TouchableOpacity>
       </ScrollView>
     );
   }
@@ -964,12 +1032,12 @@ const MuSig2Round1QRCode: React.FC = () => {
       )}
 
       <TouchableOpacity
-        testID="MuSig2CancelSession"
+        testID="MuSig2CloseSession"
         accessibilityRole="button"
-        onPress={cancelSigningSession}
-        style={styles.cancelButton}
+        onPress={closeSigningSession}
+        style={styles.closeSessionButton}
       >
-        <BlueText style={[styles.cancelText, { color: colors.redText }]}>Cancel session</BlueText>
+        <BlueText style={[styles.closeSessionText, stylesHook.closeSessionText]}>Close session</BlueText>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -997,8 +1065,8 @@ const styles = StyleSheet.create({
   fileButton: { minHeight: 48, borderRadius: 24, justifyContent: 'center', paddingHorizontal: 16 },
   fileButtonContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   fileButtonText: { marginLeft: 8, fontSize: 15, fontWeight: '600' },
-  cancelButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 18 },
-  cancelText: { fontSize: 14, fontWeight: '600' },
+  closeSessionButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 18 },
+  closeSessionText: { fontSize: 14, fontWeight: '600' },
   warningCard: { borderWidth: 1, borderRadius: 14, padding: 18, alignItems: 'center' },
   successCard: { borderWidth: 1, borderRadius: 14, padding: 18, alignItems: 'center' },
   stateIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
