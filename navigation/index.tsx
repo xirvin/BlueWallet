@@ -11,6 +11,7 @@ import { useTheme } from '../components/themes';
 import WalletXpub from '../screen/wallets/xpub';
 import WalletExport from '../screen/wallets/WalletExport';
 import MuSig2DescriptorExport from '../screen/wallets/MuSig2DescriptorExport';
+import ViewEditMuSig2ProvideMnemonicSheet from '../screen/wallets/ViewEditMuSig2ProvideMnemonicSheet';
 import ViewEditMultisigCosignerViewSheet from '../screen/wallets/ViewEditMultisigCosignerViewSheet';
 import ViewEditMultisigProvideMnemonicsSheet from '../screen/wallets/ViewEditMultisigProvideMnemonicsSheet';
 import ViewEditMultisigShareCosignerSheet from '../screen/wallets/ViewEditMultisigShareCosignerSheet';
@@ -27,6 +28,7 @@ const ExportMultisigCoordinationSetupStack = lazy(() => import('./ExportMultisig
 const SignVerifyStackRoot = lazy(() => import('./SignVerifyStack'));
 const ScanQRCode = lazy(() => import('../screen/send/ScanQRCode'));
 const ViewEditMultisigCosigners = lazy(() => import('../screen/wallets/ViewEditMultisigCosigners'));
+const ViewEditMuSig2Signers = lazy(() => import('../screen/wallets/ViewEditMuSig2Signers'));
 
 export const NavigationDefaultOptions: NativeStackNavigationOptions = {
   headerShown: false,
@@ -58,6 +60,7 @@ const LazyScanLNDInvoiceRoot = withLazySuspense(ScanLNDInvoiceRoot);
 const LazyAztecoRedeemStackRoot = withLazySuspense(AztecoRedeemStackRoot);
 const LazyExportMultisigCoordinationSetupStack = withLazySuspense(ExportMultisigCoordinationSetupStack);
 const LazyViewEditMultisigCosigners = withLazySuspense(ViewEditMultisigCosigners);
+const LazyViewEditMuSig2Signers = withLazySuspense(ViewEditMuSig2Signers);
 const LazySignVerifyStackRoot = withLazySuspense(SignVerifyStackRoot);
 const LazyScanQRCodeComponent = withLazySuspense(ScanQRCode);
 const multisigSheetAllowedDetents = Platform.OS === 'ios' ? 'fitToContents' : [0.9];
@@ -112,6 +115,16 @@ const MainRoot = () => {
             )(theme)}
           />
           <DetailViewStack.Screen
+            name="ViewEditMuSig2Signers"
+            component={LazyViewEditMuSig2Signers}
+            options={navigationStyle({
+              title: loc.multisig.manage_keys,
+              presentation: 'modal',
+              headerShown: true,
+              closeButtonPosition: CloseButtonPosition.Right,
+            })(theme)}
+          />
+          <DetailViewStack.Screen
             name="ViewEditMultisigCosignerViewSheet"
             component={ViewEditMultisigCosignerViewSheet}
             options={navigationStyle({
@@ -126,6 +139,18 @@ const MainRoot = () => {
           <DetailViewStack.Screen
             name="ViewEditMultisigProvideMnemonicsSheet"
             component={ViewEditMultisigProvideMnemonicsSheet}
+            options={navigationStyle({
+              presentation: 'formSheet',
+              sheetAllowedDetents: multisigSheetAllowedDetents,
+              sheetGrabberVisible: true,
+              closeButtonPosition: CloseButtonPosition.Right,
+              headerShown: true,
+              headerTitle: '',
+            })(theme)}
+          />
+          <DetailViewStack.Screen
+            name="ViewEditMuSig2ProvideMnemonicSheet"
+            component={ViewEditMuSig2ProvideMnemonicSheet}
             options={navigationStyle({
               presentation: 'formSheet',
               sheetAllowedDetents: multisigSheetAllowedDetents,
