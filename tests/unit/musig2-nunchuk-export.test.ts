@@ -5,36 +5,53 @@ import {
   MUSIG2_BSMS_VERSION,
   createMuSig2WalletBSMSRecord,
 } from '../../blue_modules/musig2/bsms';
+import { validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
+import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 
-const DEMO_DESCRIPTOR =
-  'tr(musig([52c4ead8/86h/0h/0h]xpub6CTWUpMsz6J8agBdjV6PqsCZfdrgtQj7nasH5D4APNRoiZc3xcFCYFAumrWLcuz9U4EagrhZgMqRW3tibSvt5ie5EwzguZ6NMQrVXpEFBz9,[32b14325/86h/0h/0h]xpub6BfAYP9UKRSNBR1eRzzqoZRXNjxKDswmqTEnFGquHLagyfdxJ3v63eMkpyxu9ZuKbw6VLqRnwwQreqG1EP5n7cu9D4u4z9ffZym57ML3VHr)/<0;1>/*)#eu6xsn9s';
-const DEMO_FIRST_ADDRESS = 'bc1pqrkpachpag3632jhcf5453wglxcr5raakjms89w9xzvhmh9qp3zshysyau';
+const NUNCHUK_ACCOUNT_2_SIGNER_1 =
+  "[32b14325/87'/0'/2']xpub6CV536smmJ4Nu15RWBJiF5oagPjfVMon4dAMdZA6di2BnbVVny8o9a7ENATNS3eX8bUTHXncBXe2SCQLDRXrY8eNq4wmbCVQEw4CNjMzWHm";
+const NUNCHUK_ACCOUNT_2_SIGNER_2 =
+  "[52c4ead8/87'/0'/2']xpub6DWaGeRp9hTVLL2ei2x3Gd6ywGVhi5wFvStKGjDLhrp5h4gbgCejZRpa3SghQhaAdohDXpsRHFReFTXAs2Q3WBXDpPCAVyZD5B7VQ8mJjD1";
+
+function createAccount2Vault(): HDTaprootMuSig2Wallet {
+  const wallet = new HDTaprootMuSig2Wallet();
+  wallet.setParticipantKeyExpressions(
+    validateMuSig2VaultSigners([NUNCHUK_ACCOUNT_2_SIGNER_1, NUNCHUK_ACCOUNT_2_SIGNER_2], 2),
+  );
+  return wallet;
+}
 
 describe('MuSig2 Nunchuk wallet export', () => {
-  it('builds the four-line BSMS 1.0 record used by Nunchuk wallet information backups', () => {
-    const record = createMuSig2WalletBSMSRecord(DEMO_DESCRIPTOR, DEMO_FIRST_ADDRESS);
+  it("builds a four-line BSMS 1.0 record with Nunchuk's m/87'/0'/2' signer origins", () => {
+    const wallet = createAccount2Vault();
+    const descriptor = wallet.getBIP390Descriptor();
+    const firstAddress = wallet._getExternalAddressByIndex(0);
+    const record = createMuSig2WalletBSMSRecord(descriptor, firstAddress);
     const lines = record.split('\n');
 
     assert.strictEqual(lines.length, 4);
     assert.strictEqual(lines[0], MUSIG2_BSMS_VERSION);
-    assert.strictEqual(lines[1], DEMO_DESCRIPTOR);
+    assert.strictEqual(lines[1], descriptor);
     assert.strictEqual(lines[2], MUSIG2_BSMS_PATH_RESTRICTIONS);
-    assert.strictEqual(lines[3], DEMO_FIRST_ADDRESS);
-    assert.strictEqual(
-      record,
-      `BSMS 1.0\n${DEMO_DESCRIPTOR}\nNo path restrictions\n${DEMO_FIRST_ADDRESS}`,
-    );
+    assert.strictEqual(lines[3], firstAddress);
+    assert.ok(descriptor.includes('/87h/0h/2h]'));
+    assert.ok(descriptor.includes(NUNCHUK_ACCOUNT_2_SIGNER_1.split(']')[1]));
+    assert.ok(descriptor.includes(NUNCHUK_ACCOUNT_2_SIGNER_2.split(']')[1]));
   });
 
   it('does not rewrite the BlueWallet BIP390 descriptor while wrapping it in BSMS', () => {
-    const record = createMuSig2WalletBSMSRecord(`  ${DEMO_DESCRIPTOR}\n`, ` ${DEMO_FIRST_ADDRESS} `);
-    assert.strictEqual(record.split('\n')[1], DEMO_DESCRIPTOR);
+    const wallet = createAccount2Vault();
+    const descriptor = wallet.getBIP390Descriptor();
+    const firstAddress = wallet._getExternalAddressByIndex(0);
+    const record = createMuSig2WalletBSMSRecord(`  ${descriptor}\n`, ` ${firstAddress} `);
+    assert.strictEqual(record.split('\n')[1], descriptor);
   });
 
   it('rejects an invalid descriptor checksum instead of exporting an unverifiable backup', () => {
-    assert.throws(
-      () => createMuSig2WalletBSMSRecord(DEMO_DESCRIPTOR.replace('#eu6xsn9s', '#00000000'), DEMO_FIRST_ADDRESS),
-      /checksum is invalid/,
-    );
+    const wallet = createAccount2Vault();
+    const descriptor = wallet.getBIP390Descriptor();
+    const firstAddress = wallet._getExternalAddressByIndex(0);
+    const badDescriptor = `${descriptor.slice(0, -8)}00000000`;
+    assert.throws(() => createMuSig2WalletBSMSRecord(badDescriptor, firstAddress), /checksum is invalid/);
   });
 });
