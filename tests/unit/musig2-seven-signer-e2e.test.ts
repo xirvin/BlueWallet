@@ -11,7 +11,11 @@ import {
 } from '../../blue_modules/musig2/local-signer';
 import { getMuSig2NonceProgress, mergeMuSig2Round1Psbt } from '../../blue_modules/musig2/psbt';
 import { getMuSig2PartialSignatureProgress, mergeMuSig2Round2Psbt } from '../../blue_modules/musig2/round2';
-import { createMuSig2TaprootSignerWallet, taprootWalletToMuSig2KeyExpression } from '../../blue_modules/musig2/vault';
+import {
+  MUSIG2_SIGNER_DERIVATION,
+  createMuSig2TaprootSignerWallet,
+  taprootWalletToMuSig2KeyExpression,
+} from '../../blue_modules/musig2/vault';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 
 bitcoin.initEccLib(ecc);
@@ -27,12 +31,15 @@ function createSevenLocalSigners() {
 }
 
 describe('MuSig2 7-of-7 end-to-end signing', () => {
-  it('completes both signing rounds and finalizes a two-input Taproot transaction', () => {
+  it("uses Nunchuk's BIP87 signer origin through both rounds and finalizes a two-input Taproot transaction", () => {
     const signers = createSevenLocalSigners();
+    assert.strictEqual(signers.every(signer => signer.getDerivationPath() === MUSIG2_SIGNER_DERIVATION), true);
+
     const vault = new HDTaprootMuSig2Wallet();
     vault.setParticipantKeyExpressions(signers.map(taprootWalletToMuSig2KeyExpression));
 
     assert.strictEqual(vault.getSignerCount(), SIGNER_COUNT);
+    assert.strictEqual(vault.getParticipants().every(participant => participant.derivationPath === MUSIG2_SIGNER_DERIVATION), true);
 
     const fundingAddress0 = vault._getExternalAddressByIndex(0);
     const fundingAddress1 = vault._getExternalAddressByIndex(1);
@@ -51,9 +58,11 @@ describe('MuSig2 7-of-7 end-to-end signing', () => {
     const round1Psbt = transaction.psbt;
     assert.strictEqual(round1Psbt.inputCount, INPUT_COUNT);
     assert.strictEqual(round1Psbt.data.globalMap.globalXpub?.length, SIGNER_COUNT);
+    assert.strictEqual(round1Psbt.data.globalMap.globalXpub?.every(item => item.path === MUSIG2_SIGNER_DERIVATION), true);
 
     const matches = getLocalMuSig2SignerMatches(vault, signers);
     assert.strictEqual(matches.length, SIGNER_COUNT);
+    assert.strictEqual(matches.every(match => match.wallet.getDerivationPath() === MUSIG2_SIGNER_DERIVATION), true);
 
     let coordinator = bitcoin.Psbt.fromBase64(round1Psbt.toBase64());
     const nonceStates = new Map<string, LocalMuSig2NonceState[]>();
