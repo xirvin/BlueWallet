@@ -9,11 +9,16 @@ import {
 } from '../../blue_modules/musig2/local-signer';
 import { getMuSig2NonceProgress, mergeMuSig2Round1Psbt } from '../../blue_modules/musig2/psbt';
 import { getMuSig2PartialSignatureProgress, mergeMuSig2Round2Psbt } from '../../blue_modules/musig2/round2';
-import { createMuSig2TaprootSignerWallet, taprootWalletToMuSig2KeyExpression } from '../../blue_modules/musig2/vault';
+import {
+  createMuSig2TaprootSignerWallet,
+  getMuSig2SignerDerivationPath,
+  taprootWalletToMuSig2KeyExpression,
+} from '../../blue_modules/musig2/vault';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 
 const MNEMONIC_A = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const MNEMONIC_B = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+const NUNCHUK_ACCOUNT_2_PATH = getMuSig2SignerDerivationPath(2);
 
 function deterministicEntropy(seed: number) {
   let counter = seed;
@@ -21,11 +26,14 @@ function deterministicEntropy(seed: number) {
 }
 
 describe('MuSig2 local BlueWallet signers', () => {
-  it('keeps Round 1 nonces pending until explicit Round 2 signing and then completes locally', () => {
-    const signerA = createMuSig2TaprootSignerWallet(MNEMONIC_A);
+  it("signs both rounds locally at Nunchuk's m/87'/0'/2' account origin", () => {
+    const signerA = createMuSig2TaprootSignerWallet(MNEMONIC_A, '', NUNCHUK_ACCOUNT_2_PATH);
     signerA.setLabel('Local A');
-    const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B);
+    const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B, '', NUNCHUK_ACCOUNT_2_PATH);
     signerB.setLabel('Local B');
+
+    assert.strictEqual(signerA.getDerivationPath(), NUNCHUK_ACCOUNT_2_PATH);
+    assert.strictEqual(signerB.getDerivationPath(), NUNCHUK_ACCOUNT_2_PATH);
 
     const vault = new HDTaprootMuSig2Wallet();
     vault.setParticipantKeyExpressions([
@@ -35,8 +43,10 @@ describe('MuSig2 local BlueWallet signers', () => {
 
     const matches = getLocalMuSig2SignerMatches(vault, [signerA, signerB]);
     assert.strictEqual(matches.length, 2);
+    assert.strictEqual(matches.every(match => match.participant.derivationPath === NUNCHUK_ACCOUNT_2_PATH), true);
 
     let coordinator = createMuSig2DryRun(vault).psbt;
+    assert.strictEqual(coordinator.data.globalMap.globalXpub?.every(item => item.path === NUNCHUK_ACCOUNT_2_PATH), true);
     const nonceStates = new Map<string, ReturnType<typeof createLocalMuSig2Round1Response>['nonces']>();
 
     matches.forEach((match, index) => {
