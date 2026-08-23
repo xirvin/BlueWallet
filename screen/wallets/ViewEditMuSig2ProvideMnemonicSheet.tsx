@@ -75,7 +75,10 @@ const ViewEditMuSig2ProvideMnemonicSheet: React.FC = () => {
           }
         }
 
-        let signerWallet = createMuSig2TaprootSignerWallet(mnemonic, passphrase);
+        // Derive the mnemonic at the exact origin recorded by the vault. This
+        // supports current Nunchuk-style m/87'/0'/account' signers as well as
+        // existing BlueWallet m/86'/0'/0' vaults without changing identity.
+        let signerWallet = createMuSig2TaprootSignerWallet(mnemonic, passphrase, participant.derivationPath);
         const normalized = normalizeMuSig2VaultSigner(taprootWalletToMuSig2KeyExpression(signerWallet)).participant;
         if (
           normalized.publicKeyHex !== participant.publicKeyHex.toLowerCase() ||
