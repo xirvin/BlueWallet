@@ -396,6 +396,11 @@ const WalletDetails: React.FC = () => {
       walletID,
     });
 
+  const navigateToViewEditMuSig2Signers = () =>
+    navigate('ViewEditMuSig2Signers', {
+      walletID,
+    });
+
   const navigateToSignVerify = () =>
     navigate('SignVerifyRoot', {
       screen: 'SignVerify',
@@ -728,13 +733,22 @@ const WalletDetails: React.FC = () => {
               )}
               {wallet.type === HDTaprootMuSig2Wallet.type &&
                 (wallet as HDTaprootMuSig2Wallet).hasCompleteExtendedParticipantMetadata() && (
-                  <SettingsListItem
-                    onPress={navigateToMuSig2DescriptorExport}
-                    title="Export wallet descriptor"
-                    testID="MuSig2DescriptorExportButton"
-                    chevron
-                    bottomDivider={!!(wallet.allowSignVerifyMessage && wallet.allowSignVerifyMessage())}
-                  />
+                  <>
+                    <SettingsListItem
+                      onPress={navigateToMuSig2DescriptorExport}
+                      title="Export wallet descriptor"
+                      testID="MuSig2DescriptorExportButton"
+                      chevron
+                      bottomDivider
+                    />
+                    <SettingsListItem
+                      onPress={navigateToViewEditMuSig2Signers}
+                      title={loc.multisig.manage_keys}
+                      testID="MuSig2ManageKeysButton"
+                      chevron
+                      bottomDivider={!!(wallet.allowSignVerifyMessage && wallet.allowSignVerifyMessage())}
+                    />
+                  </>
                 )}
               {wallet.allowSignVerifyMessage && wallet.allowSignVerifyMessage() && (
                 <SettingsListItem
