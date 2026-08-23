@@ -5,14 +5,17 @@ import * as bitcoin from 'bitcoinjs-lib';
 import ecc from '../../blue_modules/noble_ecc';
 import { normalizeMuSig2SignerInput } from '../../blue_modules/musig2/bsms';
 import {
+  MUSIG2_LEGACY_SIGNER_DERIVATION,
   MUSIG2_MAX_SIGNERS,
   MUSIG2_MIN_SIGNERS,
   MUSIG2_SIGNER_DERIVATION,
   assertMuSig2SignerCount,
   clampMuSig2SignerCount,
   createMuSig2TaprootSignerWallet,
+  getMuSig2SignerDerivationPath,
   isMuSig2TaprootSignerMnemonic,
   normalizeMuSig2VaultSigner,
+  parseMuSig2SignerDerivationPath,
   taprootWalletToMuSig2KeyExpression,
   validateMuSig2VaultSigners,
 } from '../../blue_modules/musig2/vault';
@@ -24,16 +27,21 @@ import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 const bip32 = BIP32Factory(ecc);
 bitcoin.initEccLib(ecc);
 
-const REAL_BSMS_SIGNER_1 =
+const LEGACY_BSMS_SIGNER_1 =
   "[52c4ead8/86'/0'/0']xpub6CTWUpMsz6J8agBdjV6PqsCZfdrgtQj7nasH5D4APNRoiZc3xcFCYFAumrWLcuz9U4EagrhZgMqRW3tibSvt5ie5EwzguZ6NMQrVXpEFBz9";
-const REAL_BSMS_SIGNER_2 =
+const LEGACY_BSMS_SIGNER_2 =
   "[32b14325/86'/0'/0']xpub6BfAYP9UKRSNBR1eRzzqoZRXNjxKDswmqTEnFGquHLagyfdxJ3v63eMkpyxu9ZuKbw6VLqRnwwQreqG1EP5n7cu9D4u4z9ffZym57ML3VHr";
-const REAL_BSMS_FIRST_ADDRESS = 'bc1pqrkpachpag3632jhcf5453wglxcr5raakjms89w9xzvhmh9qp3zshysyau';
+const LEGACY_BSMS_FIRST_ADDRESS = 'bc1pqrkpachpag3632jhcf5453wglxcr5raakjms89w9xzvhmh9qp3zshysyau';
 
-function makeSignerExpression(index: number): string {
+const NUNCHUK_ACCOUNT_2_SIGNER_1 =
+  "[32b14325/87'/0'/2']xpub6CV536smmJ4Nu15RWBJiF5oagPjfVMon4dAMdZA6di2BnbVVny8o9a7ENATNS3eX8bUTHXncBXe2SCQLDRXrY8eNq4wmbCVQEw4CNjMzWHm";
+const NUNCHUK_ACCOUNT_2_SIGNER_2 =
+  "[52c4ead8/87'/0'/2']xpub6DWaGeRp9hTVLL2ei2x3Gd6ywGVhi5wFvStKGjDLhrp5h4gbgCejZRpa3SghQhaAdohDXpsRHFReFTXAs2Q3WBXDpPCAVyZD5B7VQ8mJjD1";
+
+function makeSignerExpression(index: number, accountIndex = 0): string {
   const root = bip32.fromSeed(new Uint8Array(32).fill(index + 1));
-  const account = root.deriveHardened(86).deriveHardened(0).deriveHardened(0).neutered();
-  return `[${uint8ArrayToHex(root.fingerprint)}/86'/0'/0']${account.toBase58()}`;
+  const account = root.deriveHardened(87).deriveHardened(0).deriveHardened(accountIndex).neutered();
+  return `[${uint8ArrayToHex(root.fingerprint)}/87'/0'/${accountIndex}']${account.toBase58()}`;
 }
 
 describe('MuSig2 Vault UX rules', () => {
@@ -47,7 +55,17 @@ describe('MuSig2 Vault UX rules', () => {
     assert.strictEqual(clampMuSig2SignerCount(9), 7);
   });
 
-  it('validates complete BIP86 signer sets for every supported vault size', () => {
+  it("uses Nunchuk's m/87'/0'/account' family and defaults new local signers to account 0", () => {
+    assert.strictEqual(MUSIG2_SIGNER_DERIVATION, "m/87'/0'/0'");
+    assert.strictEqual(getMuSig2SignerDerivationPath(2), "m/87'/0'/2'");
+    assert.deepStrictEqual(parseMuSig2SignerDerivationPath("m/87h/0h/2h"), {
+      path: "m/87'/0'/2'",
+      accountIndex: 2,
+      scheme: 'nunchuk-bip87',
+    });
+  });
+
+  it('validates complete Nunchuk-style signer sets for every supported vault size', () => {
     const all = Array.from({ length: 7 }, (_, index) => makeSignerExpression(index));
 
     for (let count = 2; count <= 7; count++) {
@@ -57,18 +75,36 @@ describe('MuSig2 Vault UX rules', () => {
 
       assert.strictEqual(wallet.getSignerCount(), count);
       assert.strictEqual(wallet.hasCompleteExtendedParticipantMetadata(), true);
+      assert.strictEqual(wallet.getParticipants().every(participant => participant.derivationPath === MUSIG2_SIGNER_DERIVATION), true);
       assert.ok(wallet.getBIP390Descriptor().startsWith('tr(musig('));
     }
   });
 
-  it('derives the expected first MuSig2 address from the real two-signer BSMS vector', () => {
+  it('accepts the real Nunchuk account-2 signer origin convention', () => {
+    const expressions = validateMuSig2VaultSigners([NUNCHUK_ACCOUNT_2_SIGNER_1, NUNCHUK_ACCOUNT_2_SIGNER_2], 2);
     const wallet = new HDTaprootMuSig2Wallet();
-    wallet.setParticipantKeyExpressions([REAL_BSMS_SIGNER_1, REAL_BSMS_SIGNER_2]);
+    wallet.setParticipantKeyExpressions(expressions);
 
-    assert.strictEqual(wallet._getExternalAddressByIndex(0), REAL_BSMS_FIRST_ADDRESS);
+    assert.strictEqual(wallet.getParticipants().every(participant => participant.derivationPath === "m/87'/0'/2'"), true);
+    assert.ok(wallet.getBIP390Descriptor().includes('/87h/0h/2h]'));
   });
 
-  it('includes every signer account xpub in a 7-of-7 signing PSBT', () => {
+  it('keeps existing BlueWallet BIP86 vaults recoverable without changing their addresses', () => {
+    const expressions = validateMuSig2VaultSigners([LEGACY_BSMS_SIGNER_1, LEGACY_BSMS_SIGNER_2], 2);
+    const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setParticipantKeyExpressions(expressions);
+
+    assert.strictEqual(wallet._getExternalAddressByIndex(0), LEGACY_BSMS_FIRST_ADDRESS);
+    assert.strictEqual(wallet.getParticipants().every(participant => participant.derivationPath === MUSIG2_LEGACY_SIGNER_DERIVATION), true);
+  });
+
+  it('rejects mixed MuSig2 account origins in one vault', () => {
+    const account0 = makeSignerExpression(0, 0);
+    const account2 = makeSignerExpression(1, 2);
+    assert.throws(() => validateMuSig2VaultSigners([account0, account2], 2), /same m\/87'\/0'\/account' origin/);
+  });
+
+  it('includes every Nunchuk-style signer account xpub and path in a 7-of-7 signing PSBT', () => {
     const expressions = Array.from({ length: 7 }, (_, index) => makeSignerExpression(index));
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setParticipantKeyExpressions(expressions);
@@ -84,8 +120,10 @@ describe('MuSig2 Vault UX rules', () => {
     );
 
     assert.strictEqual(result.psbt.data.globalMap.globalXpub?.length, 7);
+    assert.strictEqual(result.psbt.data.globalMap.globalXpub?.every(item => item.path === MUSIG2_SIGNER_DERIVATION), true);
     const roundTrip = bitcoin.Psbt.fromBase64(result.psbt.toBase64());
     assert.strictEqual(roundTrip.data.globalMap.globalXpub?.length, 7);
+    assert.strictEqual(roundTrip.data.globalMap.globalXpub?.every(item => item.path === MUSIG2_SIGNER_DERIVATION), true);
     assert.deepStrictEqual(
       new Set(roundTrip.data.globalMap.globalXpub?.map(item => uint8ArrayToHex(item.masterFingerprint))).size,
       7,
@@ -103,28 +141,15 @@ describe('MuSig2 Vault UX rules', () => {
     assert.strictEqual(normalizeMuSig2VaultSigner(complete).keyExpression, expression);
   });
 
-  it('requires the standard BIP86 account origin and distinct signer keys', () => {
+  it('requires a supported MuSig2 account origin and distinct signer keys', () => {
     const expression = makeSignerExpression(0);
-    const wrongPath = expression.replace("/86'/0'/0']", "/84'/0'/0']");
+    const wrongPath = expression.replace("/87'/0'/0']", "/84'/0'/0']");
 
-    assert.throws(() => normalizeMuSig2VaultSigner(wrongPath), /standard BIP86 path/);
+    assert.throws(() => normalizeMuSig2VaultSigner(wrongPath), /m\/87'\/0'\/account'/);
     assert.throws(() => validateMuSig2VaultSigners([expression, expression], 2), /must all be distinct/);
   });
 
-  it('turns a normal BlueWallet Taproot wallet into the expected MuSig2 signer expression', () => {
-    const signer = new HDTaprootWallet();
-    signer.setSecret('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
-
-    assert.strictEqual(signer.getDerivationPath(), MUSIG2_SIGNER_DERIVATION);
-    assert.ok(signer._getExternalAddressByIndex(0).startsWith('bc1p'));
-
-    const expression = taprootWalletToMuSig2KeyExpression(signer);
-    const normalized = normalizeMuSig2VaultSigner(expression);
-    assert.strictEqual(normalized.participant.derivationPath, MUSIG2_SIGNER_DERIVATION);
-    assert.strictEqual(normalized.participant.xpub, signer.getXpub());
-  });
-
-  it('imports a BIP39 seed as a normal local BIP86 Taproot signer wallet', () => {
+  it('imports a BIP39 seed as a local Nunchuk-style MuSig2 signer wallet', () => {
     const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
     assert.strictEqual(isMuSig2TaprootSignerMnemonic(mnemonic), true);
     assert.strictEqual(isMuSig2TaprootSignerMnemonic('not a valid seed phrase'), false);
@@ -135,7 +160,28 @@ describe('MuSig2 Vault UX rules', () => {
     assert.ok(signer._getExternalAddressByIndex(0).startsWith('bc1p'));
 
     const expression = taprootWalletToMuSig2KeyExpression(signer);
+    assert.ok(expression.includes("/87'/0'/0']"));
     assert.strictEqual(normalizeMuSig2VaultSigner(expression).participant.xpub, signer.getXpub());
+  });
+
+  it('can derive and restore a Nunchuk account-2 signer from seed words', () => {
+    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+    const account0 = createMuSig2TaprootSignerWallet(mnemonic);
+    const account2 = createMuSig2TaprootSignerWallet(mnemonic, '', getMuSig2SignerDerivationPath(2));
+
+    assert.strictEqual(account2.getDerivationPath(), "m/87'/0'/2'");
+    assert.notStrictEqual(account2.getXpub(), account0.getXpub());
+    assert.ok(taprootWalletToMuSig2KeyExpression(account2).includes("/87'/0'/2']"));
+  });
+
+  it('continues to recognize an existing local BIP86 signer wallet', () => {
+    const signer = new HDTaprootWallet();
+    signer.setSecret('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+
+    assert.strictEqual(signer.getDerivationPath(), MUSIG2_LEGACY_SIGNER_DERIVATION);
+    const expression = taprootWalletToMuSig2KeyExpression(signer);
+    assert.ok(expression.includes("/86'/0'/0']"));
+    assert.strictEqual(normalizeMuSig2VaultSigner(expression).participant.derivationPath, MUSIG2_LEGACY_SIGNER_DERIVATION);
   });
 
   it('includes a BIP39 passphrase in the local signer identity', () => {
