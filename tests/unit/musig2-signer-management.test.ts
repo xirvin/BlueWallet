@@ -8,6 +8,7 @@ import {
 } from '../../blue_modules/musig2/signer-management';
 import {
   createMuSig2TaprootSignerWallet,
+  getMuSig2SignerDerivationPath,
   normalizeMuSig2VaultSigner,
   taprootWalletToMuSig2KeyExpression,
 } from '../../blue_modules/musig2/vault';
@@ -56,24 +57,26 @@ describe('MuSig2 signer management', () => {
     assert.strictEqual(getLocalMuSig2SignerMatches(vault, [signerB]).length, 1);
   });
 
-  it('restores the exact signer seed and preserves xpub-only public wallet state', () => {
-    const original = createMuSig2TaprootSignerWallet(MNEMONIC_A, PASSPHRASE_A);
+  it("restores the exact Nunchuk account-2 signer seed and preserves xpub-only public wallet state", () => {
+    const account2Path = getMuSig2SignerDerivationPath(2);
+    const original = createMuSig2TaprootSignerWallet(MNEMONIC_A, PASSPHRASE_A, account2Path);
     original.setLabel('Vault signer A');
     original._balances_by_external_index = { 0: { c: 98765, u: 0 } };
     original.next_free_address_index = 4;
     const participant = normalizeMuSig2VaultSigner(taprootWalletToMuSig2KeyExpression(original)).participant;
     const watchOnly = createMuSig2WatchOnlySignerWallet(original, participant);
 
-    const restoredSeedWallet = createMuSig2TaprootSignerWallet(MNEMONIC_A, PASSPHRASE_A);
+    const restoredSeedWallet = createMuSig2TaprootSignerWallet(MNEMONIC_A, PASSPHRASE_A, participant.derivationPath);
     const restored = restoreMuSig2LocalSignerWalletFromWatchOnly(restoredSeedWallet, watchOnly);
 
     assert.strictEqual(restored.getLabel(), 'Vault signer A');
+    assert.strictEqual(restored.getDerivationPath(), account2Path);
     assert.strictEqual(restored.getBalance(), 98765);
     assert.strictEqual(restored.getNextFreeAddressIndex(), 4);
     assert.strictEqual(taprootWalletToMuSig2KeyExpression(restored), taprootWalletToMuSig2KeyExpression(original));
 
     const vault = new HDTaprootMuSig2Wallet();
-    const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B);
+    const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B, '', account2Path);
     vault.setParticipantKeyExpressions([
       taprootWalletToMuSig2KeyExpression(restored),
       taprootWalletToMuSig2KeyExpression(signerB),
