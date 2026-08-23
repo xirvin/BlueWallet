@@ -140,7 +140,6 @@ export type DetailViewStackParamList = {
   MuSig2DescriptorExport: { walletID: string };
   MuSig2DescriptorQR: { walletID: string };
   MuSig2NunchukExport: { walletID: string };
-  MuSig2NunchukQR: { walletID: string; format: 'bbqr' | 'urv2' };
   SignVerifyRoot: {
     screen: 'SignVerify';
     params: {
