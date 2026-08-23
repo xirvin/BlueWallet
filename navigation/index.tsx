@@ -11,6 +11,9 @@ import { useTheme } from '../components/themes';
 import WalletXpub from '../screen/wallets/xpub';
 import WalletExport from '../screen/wallets/WalletExport';
 import MuSig2DescriptorExport from '../screen/wallets/MuSig2DescriptorExport';
+import MuSig2DescriptorQR from '../screen/wallets/MuSig2DescriptorQR';
+import MuSig2NunchukExport from '../screen/wallets/MuSig2NunchukExport';
+import MuSig2NunchukQR from '../screen/wallets/MuSig2NunchukQR';
 import ViewEditMuSig2ProvideMnemonicSheet from '../screen/wallets/ViewEditMuSig2ProvideMnemonicSheet';
 import ViewEditMultisigCosignerViewSheet from '../screen/wallets/ViewEditMultisigCosignerViewSheet';
 import ViewEditMultisigProvideMnemonicsSheet from '../screen/wallets/ViewEditMultisigProvideMnemonicsSheet';
@@ -186,10 +189,34 @@ const MainRoot = () => {
             name="MuSig2DescriptorExport"
             component={MuSig2DescriptorExport}
             options={navigationStyle({
-              title: 'Export wallet descriptor',
+              title: 'Export Vault Descriptor',
               presentation: 'modal',
               headerShown: true,
               closeButtonPosition: CloseButtonPosition.Right,
+            })(theme)}
+          />
+          <DetailViewStack.Screen
+            name="MuSig2DescriptorQR"
+            component={MuSig2DescriptorQR}
+            options={navigationStyle({
+              title: 'Descriptor QR',
+              headerShown: true,
+            })(theme)}
+          />
+          <DetailViewStack.Screen
+            name="MuSig2NunchukExport"
+            component={MuSig2NunchukExport}
+            options={navigationStyle({
+              title: 'Nunchuk',
+              headerShown: true,
+            })(theme)}
+          />
+          <DetailViewStack.Screen
+            name="MuSig2NunchukQR"
+            component={MuSig2NunchukQR}
+            options={navigationStyle({
+              title: 'Nunchuk QR',
+              headerShown: true,
             })(theme)}
           />
           <DetailViewStack.Screen
