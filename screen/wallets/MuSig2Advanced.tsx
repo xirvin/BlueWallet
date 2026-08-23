@@ -66,8 +66,8 @@ const MuSig2Advanced: React.FC = () => {
 
       <Text style={[styles.header, { color: colors.outputValue }]}>Wallet type</Text>
       <ListItem title={MUSIG2_WALLET_TYPE_LABEL} subtitle="Native Taproot key-path wallet" checkmark bottomDivider={false} />
-      <ListItem title="Signer derivation" subtitle={MUSIG2_SIGNER_DERIVATION} bottomDivider={false} />
-      <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>Each Vault Key uses a standard BIP86 Taproot account xpub. The vault descriptor uses BIP390 musig() with BIP328 aggregate derivation.</Text>
+      <ListItem title="Default signer derivation" subtitle={MUSIG2_SIGNER_DERIVATION} bottomDivider={false} />
+      <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>New local Vault Keys use Nunchuk's mainnet m/87'/0'/account' signer convention, with account 0 by default. Imported Nunchuk account indexes are preserved, and legacy BlueWallet m/86'/0'/0' vaults remain recoverable. The vault descriptor continues to use BIP390 musig() with BIP328 aggregate derivation.</Text>
 
       {Platform.OS === 'android' && <HeaderRightButton disabled={false} title="Done" onPress={done} testID="MuSig2SettingsDone" />}
     </SafeArea>
