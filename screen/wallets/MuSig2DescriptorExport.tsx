@@ -80,7 +80,7 @@ const MuSig2DescriptorExport: React.FC = () => {
         <SettingsListItem
           iconName="paperPlane"
           title="Nunchuk"
-          subtitle="Choose BBQr or review URv2 compatibility"
+          subtitle="Plain descriptor QR and BSMS 1.0 backup"
           testID="MuSig2DescriptorExportNunchuk"
           chevron
           onPress={() => navigation.navigate('MuSig2NunchukExport', { walletID })}
