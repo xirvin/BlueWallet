@@ -64,7 +64,6 @@ const MuSig2NunchukExport: React.FC = () => {
           iconName="paperPlane"
           title="BBQr"
           subtitle="Recommended · exact BIP390 descriptor"
-          rightTitle="Recommended"
           testID="MuSig2NunchukBBQR"
           chevron
           onPress={() => navigation.navigate('MuSig2NunchukQR', { walletID, format: 'bbqr' })}
@@ -72,8 +71,7 @@ const MuSig2NunchukExport: React.FC = () => {
         <SettingsListItem
           iconName="tools"
           title="URv2"
-          subtitle="Review compatibility before export"
-          rightTitle="Limited"
+          subtitle="Limited for this BIP390 MuSig2 derivation"
           testID="MuSig2NunchukURv2"
           chevron
           bottomDivider={false}
