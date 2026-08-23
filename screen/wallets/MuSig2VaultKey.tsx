@@ -49,9 +49,13 @@ const MuSig2VaultKey: React.FC = () => {
   const [passphrase, setPassphrase] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const existingTaprootWallets = useMemo(
+  const allTaprootWallets = useMemo(
     () => wallets.filter(wallet => wallet.type === HDTaprootWallet.type) as HDTaprootWallet[],
     [wallets],
+  );
+  const existingMuSig2SignerWallets = useMemo(
+    () => allTaprootWallets.filter(wallet => wallet.getDerivationPath() === MUSIG2_SIGNER_DERIVATION),
+    [allTaprootWallets],
   );
 
   const preview = useMemo<SignerPreview | undefined>(() => {
@@ -101,14 +105,14 @@ const MuSig2VaultKey: React.FC = () => {
 
   const previewIsKnownLocalWallet = useMemo(() => {
     if (!preview) return false;
-    return existingTaprootWallets.some(wallet => {
+    return allTaprootWallets.some(wallet => {
       try {
         return taprootWalletToMuSig2KeyExpression(wallet) === preview.keyExpression;
       } catch {
         return false;
       }
     });
-  }, [existingTaprootWallets, preview]);
+  }, [allTaprootWallets, preview]);
 
   const assignPublicExpression = useCallback(
     (expression: string) => {
@@ -131,7 +135,7 @@ const MuSig2VaultKey: React.FC = () => {
         let signerWalletLabel = defaultLabel;
 
         try {
-          const requestedLabel = await prompt('How would you like to name this wallet?', 'Taproot signer wallet', {
+          const requestedLabel = await prompt('How would you like to name this wallet?', 'MuSig2 signer wallet', {
             type: 'plain-text',
             defaultValue: defaultLabel,
             continueButtonText: 'Import',
@@ -167,7 +171,7 @@ const MuSig2VaultKey: React.FC = () => {
     let signerWalletLabel = defaultLabel;
 
     try {
-      const requestedLabel = await prompt('How would you like to name this wallet?', 'Taproot signer wallet', {
+      const requestedLabel = await prompt('How would you like to name this wallet?', 'MuSig2 signer wallet', {
         type: 'plain-text',
         defaultValue: defaultLabel,
         continueButtonText: 'Create',
@@ -175,13 +179,14 @@ const MuSig2VaultKey: React.FC = () => {
       signerWalletLabel = requestedLabel.trim() || defaultLabel;
     } catch (error) {
       if (error instanceof Error && error.message === 'Cancel Pressed') return;
-      presentAlert({ title: 'Could not name Taproot signer wallet', message: error instanceof Error ? error.message : String(error) });
+      presentAlert({ title: 'Could not name MuSig2 signer wallet', message: error instanceof Error ? error.message : String(error) });
       return;
     }
 
     setIsLoading(true);
     try {
       const wallet = new HDTaprootWallet();
+      wallet._derivationPath = MUSIG2_SIGNER_DERIVATION;
       wallet.setLabel(signerWalletLabel);
       await wallet.generate();
       const expression = taprootWalletToMuSig2KeyExpression(wallet);
@@ -197,41 +202,41 @@ const MuSig2VaultKey: React.FC = () => {
         seed: wallet.getSecret(),
       });
     } catch (error: any) {
-      presentAlert({ title: 'Could not create Taproot signer wallet', message: error?.message ?? String(error) });
+      presentAlert({ title: 'Could not create MuSig2 signer wallet', message: error?.message ?? String(error) });
     } finally {
       setIsLoading(false);
     }
   }, [addAndSaveWallet, keyIndex, navigation, saveSigner, walletLabel]);
 
   const chooseExistingTaprootWallet = useCallback(() => {
-    if (existingTaprootWallets.length === 0) {
-      presentAlert({ message: 'No existing HD Taproot (BIP86) wallets are available.' });
+    if (existingMuSig2SignerWallets.length === 0) {
+      presentAlert({ message: `No existing ${MUSIG2_SIGNER_DERIVATION} MuSig2 signer wallets are available.` });
       return;
     }
 
-    const options = [...existingTaprootWallets.map(wallet => wallet.getLabel()), 'Cancel'];
+    const options = [...existingMuSig2SignerWallets.map(wallet => wallet.getLabel()), 'Cancel'];
     const cancelButtonIndex = options.length - 1;
     ActionSheet.showActionSheetWithOptions(
       {
-        title: 'Use existing Taproot signer wallet',
-        message: `Only standard ${MUSIG2_SIGNER_DERIVATION} HD Taproot wallets can be used as local MuSig2 signers.`,
+        title: 'Use existing MuSig2 signer wallet',
+        message: `New BlueWallet MuSig2 signers use Nunchuk's ${MUSIG2_SIGNER_DERIVATION} account origin.`,
         options,
         cancelButtonIndex,
       },
       buttonIndex => {
         if (buttonIndex === undefined || buttonIndex === cancelButtonIndex) return;
-        const wallet = existingTaprootWallets[buttonIndex];
+        const wallet = existingMuSig2SignerWallets[buttonIndex];
         if (!wallet) return;
         try {
           const expression = taprootWalletToMuSig2KeyExpression(wallet);
           saveSigner(expression, wallet.getLabel());
           navigation.goBack();
         } catch (error: any) {
-          presentAlert({ title: 'Taproot signer wallet', message: error?.message ?? String(error) });
+          presentAlert({ title: 'MuSig2 signer wallet', message: error?.message ?? String(error) });
         }
       },
     );
-  }, [existingTaprootWallets, navigation, saveSigner]);
+  }, [existingMuSig2SignerWallets, navigation, saveSigner]);
 
   const handleImportedText = useCallback((text: string) => {
     setInput(text);
@@ -253,20 +258,20 @@ const MuSig2VaultKey: React.FC = () => {
     >
       <BlueText bold style={styles.title}>Vault Key {keyIndex}</BlueText>
       <BlueText style={styles.description}>
-        Assign a BIP86 Taproot signer to this MuSig2 slot. Create one in BlueWallet, choose an existing Taproot wallet, or paste/type the complete signer information below.
+        Assign a MuSig2 Taproot signer to this slot. New BlueWallet signers use Nunchuk's {MUSIG2_SIGNER_DERIVATION} account origin. Existing legacy BlueWallet MuSig2 signer exports can still be imported for recovery.
       </BlueText>
 
       <BlueText bold style={styles.sectionTitle}>Create or use a local signer wallet</BlueText>
       <BlueText style={styles.sectionDescription}>
-        Local signers are normal BlueWallet HD Taproot wallets. The MuSig2 vault stores only their public BIP86 account information.
+        The MuSig2 vault stores only the signer's public account information. The seed stays in the dedicated local signer wallet.
       </BlueText>
-      <Button testID="MuSig2CreateTaprootKey" title="Create new Taproot signer wallet" onPress={createNewTaprootKey} disabled={isLoading} />
-      {existingTaprootWallets.length > 0 && (
+      <Button testID="MuSig2CreateTaprootKey" title="Create new MuSig2 signer wallet" onPress={createNewTaprootKey} disabled={isLoading} />
+      {existingMuSig2SignerWallets.length > 0 && (
         <>
           <BlueSpacing10 />
           <Button
             testID="MuSig2UseExistingTaprootKey"
-            title="Use existing Taproot wallet"
+            title="Use existing MuSig2 signer wallet"
             onPress={chooseExistingTaprootWallet}
             disabled={isLoading}
           />
@@ -276,7 +281,7 @@ const MuSig2VaultKey: React.FC = () => {
       <BlueSpacing20 />
       <BlueText bold style={styles.sectionTitle}>Enter signer wallet information</BlueText>
       <BlueText style={styles.sectionDescription}>
-        Paste or type seed words, a complete BSMS 1.0 export, a Taproot descriptor, [fingerprint/path]xpub, or compatible JSON. QR, file, photo, and clipboard import are also supported.
+        Paste or type seed words, a complete BSMS 1.0 export, a Taproot descriptor, [fingerprint/path]xpub, or compatible JSON. Nunchuk m/87'/0'/account' origins are accepted. QR, file, photo, and clipboard import are also supported.
       </BlueText>
 
       <AddressInputScanButton
@@ -336,12 +341,12 @@ const MuSig2VaultKey: React.FC = () => {
       {preview ? (
         <View style={styles.validation}>
           <BlueText bold style={{ color: colors.successColor }}>
-            {preview.kind === 'local-seed' || previewIsKnownLocalWallet ? 'Valid local Taproot signer wallet' : 'Valid external Taproot signer'}
+            {preview.kind === 'local-seed' || previewIsKnownLocalWallet ? 'Valid local MuSig2 signer wallet' : 'Valid external MuSig2 signer'}
           </BlueText>
-          <BlueText>Type: Taproot (P2TR / BIP86)</BlueText>
+          <BlueText>Type: Taproot MuSig2 signer</BlueText>
           <BlueText>Fingerprint: {preview.fingerprint}</BlueText>
           <BlueText>Derivation: {preview.derivationPath}</BlueText>
-          {preview.receiveAddress && <BlueText selectable>First receive: {preview.receiveAddress}</BlueText>}
+          {preview.receiveAddress && <BlueText selectable>Signer wallet first receive: {preview.receiveAddress}</BlueText>}
           <BlueText selectable numberOfLines={3}>XPUB: {preview.xpub}</BlueText>
         </View>
       ) : validationError ? (
