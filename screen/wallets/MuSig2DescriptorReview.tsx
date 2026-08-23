@@ -4,7 +4,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import {
-  MUSIG2_SIGNER_DERIVATION,
   MUSIG2_WALLET_TYPE_LABEL,
   taprootWalletToMuSig2KeyExpression,
   validateMuSig2VaultSigners,
@@ -39,6 +38,8 @@ const MuSig2DescriptorReview: React.FC = () => {
     result.setParticipantKeyExpressions(normalized);
     return result;
   }, [signerCount, signerExpressions, walletLabel]);
+
+  const signerDerivationPath = wallet.getParticipants()[0]?.derivationPath ?? 'Unknown';
 
   const localSignerCount = useMemo(
     () =>
@@ -93,7 +94,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         <BlueText bold>Wallet type</BlueText>
         <BlueText>{MUSIG2_WALLET_TYPE_LABEL}</BlueText>
         <BlueText bold>Signer account origin</BlueText>
-        <BlueText>{MUSIG2_SIGNER_DERIVATION}</BlueText>
+        <BlueText>{signerDerivationPath}</BlueText>
         <BlueText bold>First receive address</BlueText>
         <BlueText selectable>{receiveAddress}</BlueText>
       </View>
