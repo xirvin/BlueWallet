@@ -34,7 +34,11 @@ export function getMuSig2SignerDerivationPath(accountIndex = MUSIG2_DEFAULT_ACCO
 
 export const MUSIG2_SIGNER_DERIVATION = getMuSig2SignerDerivationPath();
 
-export function parseMuSig2SignerDerivationPath(path: string): MuSig2SignerDerivationInfo {
+export function parseMuSig2SignerDerivationPath(path?: string): MuSig2SignerDerivationInfo {
+  if (!path) {
+    throw new Error("MuSig2 Vault signer origin is missing; expected Nunchuk's mainnet m/87'/0'/account' derivation");
+  }
+
   const normalized = path.trim().replace(/[hH]/g, "'");
 
   if (normalized === MUSIG2_LEGACY_SIGNER_DERIVATION) {
