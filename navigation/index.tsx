@@ -13,7 +13,6 @@ import WalletExport from '../screen/wallets/WalletExport';
 import MuSig2DescriptorExport from '../screen/wallets/MuSig2DescriptorExport';
 import MuSig2DescriptorQR from '../screen/wallets/MuSig2DescriptorQR';
 import MuSig2NunchukExport from '../screen/wallets/MuSig2NunchukExport';
-import MuSig2NunchukQR from '../screen/wallets/MuSig2NunchukQR';
 import ViewEditMuSig2ProvideMnemonicSheet from '../screen/wallets/ViewEditMuSig2ProvideMnemonicSheet';
 import ViewEditMultisigCosignerViewSheet from '../screen/wallets/ViewEditMultisigCosignerViewSheet';
 import ViewEditMultisigProvideMnemonicsSheet from '../screen/wallets/ViewEditMultisigProvideMnemonicsSheet';
@@ -208,14 +207,6 @@ const MainRoot = () => {
             component={MuSig2NunchukExport}
             options={navigationStyle({
               title: 'Nunchuk',
-              headerShown: true,
-            })(theme)}
-          />
-          <DetailViewStack.Screen
-            name="MuSig2NunchukQR"
-            component={MuSig2NunchukQR}
-            options={navigationStyle({
-              title: 'Nunchuk QR',
               headerShown: true,
             })(theme)}
           />
