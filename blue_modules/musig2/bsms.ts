@@ -8,6 +8,9 @@ const TAPROOT_DESCRIPTOR = new RegExp(
 );
 const BARE_KEY_EXPRESSION = new RegExp(String.raw`^${ORIGIN_PATTERN}${XPUB_PATTERN}$`, 'i');
 
+export const MUSIG2_BSMS_VERSION = 'BSMS 1.0';
+export const MUSIG2_BSMS_PATH_RESTRICTIONS = 'No path restrictions';
+
 function normalizeJsonFingerprint(value: unknown): string | undefined {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff) {
     return value.toString(16).padStart(8, '0');
@@ -71,6 +74,44 @@ function keyExpressionFromJson(value: unknown): string | undefined {
 
   const originPath = path === 'm' ? '' : `/${path.slice(2)}`;
   return `[${fingerprint}${originPath}]${record.xpub.trim()}`;
+}
+
+/**
+ * Builds the four-line BSMS 1.0 wallet backup record used by Nunchuk's wallet
+ * information export/import flow:
+ *
+ *   BSMS 1.0
+ *   <checksummed descriptor>
+ *   No path restrictions
+ *   <first receive address>
+ *
+ * The descriptor is preserved byte-for-byte apart from surrounding whitespace;
+ * it is never rewritten into a different MuSig2 derivation policy.
+ */
+export function createMuSig2WalletBSMSRecord(descriptor: string, firstAddress: string): string {
+  const normalizedDescriptor = descriptor.trim();
+  const normalizedAddress = firstAddress.trim();
+  const checksumSeparator = normalizedDescriptor.lastIndexOf('#');
+
+  if (checksumSeparator <= 0 || checksumSeparator !== normalizedDescriptor.length - 9) {
+    throw new Error('MuSig2 wallet descriptor must contain an 8-character checksum');
+  }
+
+  const descriptorBody = normalizedDescriptor.slice(0, checksumSeparator);
+  const suppliedChecksum = normalizedDescriptor.slice(checksumSeparator + 1).toLowerCase();
+  if (descriptorChecksum(descriptorBody) !== suppliedChecksum) {
+    throw new Error('MuSig2 wallet descriptor checksum is invalid');
+  }
+
+  if (!descriptorBody.startsWith('tr(musig(')) {
+    throw new Error('BSMS export requires a BIP390 MuSig2 Taproot descriptor');
+  }
+
+  if (!normalizedAddress) {
+    throw new Error('BSMS export requires the first receive address');
+  }
+
+  return [MUSIG2_BSMS_VERSION, normalizedDescriptor, MUSIG2_BSMS_PATH_RESTRICTIONS, normalizedAddress].join('\n');
 }
 
 /**
