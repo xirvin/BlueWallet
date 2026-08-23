@@ -9,6 +9,7 @@ import {
   createMuSig2TaprootSignerWallet,
   isMuSig2TaprootSignerMnemonic,
   normalizeMuSig2VaultSigner,
+  parseMuSig2SignerDerivationPath,
   taprootWalletToMuSig2KeyExpression,
 } from '../../blue_modules/musig2/vault';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
@@ -54,7 +55,14 @@ const MuSig2VaultKey: React.FC = () => {
     [wallets],
   );
   const existingMuSig2SignerWallets = useMemo(
-    () => allTaprootWallets.filter(wallet => wallet.getDerivationPath() === MUSIG2_SIGNER_DERIVATION),
+    () =>
+      allTaprootWallets.filter(wallet => {
+        try {
+          return parseMuSig2SignerDerivationPath(wallet.getDerivationPath()).scheme === 'nunchuk-bip87';
+        } catch {
+          return false;
+        }
+      }),
     [allTaprootWallets],
   );
 
@@ -210,7 +218,7 @@ const MuSig2VaultKey: React.FC = () => {
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingMuSig2SignerWallets.length === 0) {
-      presentAlert({ message: `No existing ${MUSIG2_SIGNER_DERIVATION} MuSig2 signer wallets are available.` });
+      presentAlert({ message: "No existing Nunchuk-style m/87'/0'/account' MuSig2 signer wallets are available." });
       return;
     }
 
@@ -219,7 +227,7 @@ const MuSig2VaultKey: React.FC = () => {
     ActionSheet.showActionSheetWithOptions(
       {
         title: 'Use existing MuSig2 signer wallet',
-        message: `New BlueWallet MuSig2 signers use Nunchuk's ${MUSIG2_SIGNER_DERIVATION} account origin.`,
+        message: "BlueWallet accepts existing Nunchuk-style m/87'/0'/account' signer wallets. All Vault Keys in one vault must use the same account origin.",
         options,
         cancelButtonIndex,
       },
