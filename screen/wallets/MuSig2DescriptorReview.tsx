@@ -40,12 +40,11 @@ const MuSig2DescriptorReview: React.FC = () => {
     return result;
   }, [signerCount, signerExpressions, walletLabel]);
 
+  const participants = useMemo(() => wallet.getParticipants(), [wallet]);
   const existingVaults = useMemo(
     () => wallets.filter(candidate => candidate.type === HDTaprootMuSig2Wallet.type) as HDTaprootMuSig2Wallet[],
     [wallets],
   );
-  const signerDerivationPath = wallet.getSignerAccountDerivationPath() ?? 'Unknown';
-  const accountIndex = wallet.getAccountIndex();
 
   const localSignerCount = useMemo(
     () =>
@@ -68,7 +67,7 @@ const MuSig2DescriptorReview: React.FC = () => {
   const createVault = useCallback(async () => {
     setIsSaving(true);
     try {
-      for (const participant of wallet.getParticipants()) {
+      for (const participant of participants) {
         assertMuSig2ParticipantAccountAvailable(participant, existingVaults);
       }
       if (!isElectrumDisabled) await wallet.fetchBalance();
@@ -78,7 +77,7 @@ const MuSig2DescriptorReview: React.FC = () => {
       presentAlert({ title: 'Could not create MuSig2 Vault', message: error?.message ?? String(error) });
       setIsSaving(false);
     }
-  }, [addAndSaveWallet, existingVaults, isElectrumDisabled, navigation, wallet]);
+  }, [addAndSaveWallet, existingVaults, isElectrumDisabled, navigation, participants, wallet]);
 
   const stylesHook = StyleSheet.create({
     localSignerCard: { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground },
@@ -92,7 +91,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         Review MuSig2 Vault
       </BlueText>
       <BlueText style={styles.description}>
-        Confirm the quorum, Taproot wallet type, BIP87 vault account, signer origins, and BIP390 descriptor before saving. All signers are required for every spend.
+        Confirm the quorum, Taproot wallet type, each signer's BIP87 account origin, and BIP390 descriptor before saving. All signers are required for every spend.
       </BlueText>
 
       <View style={styles.details}>
@@ -102,14 +101,12 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
         <BlueText bold>Wallet type</BlueText>
         <BlueText>{MUSIG2_WALLET_TYPE_LABEL}</BlueText>
-        {accountIndex !== undefined && (
-          <>
-            <BlueText bold>BIP87 wallet account</BlueText>
-            <BlueText>{accountIndex}</BlueText>
-          </>
-        )}
-        <BlueText bold>Signer account origin</BlueText>
-        <BlueText>{signerDerivationPath}</BlueText>
+        <BlueText bold>Signer BIP87 accounts</BlueText>
+        {participants.map((participant, index) => (
+          <BlueText key={`${participant.publicKeyHex}-${index}`} selectable>
+            {(participant.masterFingerprint ?? 'unknown').toUpperCase()} · {participant.derivationPath ?? 'Unknown path'}
+          </BlueText>
+        ))}
         <BlueText bold>First receive address</BlueText>
         <BlueText selectable>{receiveAddress}</BlueText>
       </View>
@@ -136,7 +133,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
       </View>
       <BlueText style={styles.note}>
-        The descriptor is the public coordination policy for this vault. Back it up with the signer origin information. It contains no private keys.
+        BIP87 account indexes are tracked per master signer. The descriptor records every fingerprint, account path, and xpub needed to reconstruct the public policy.
       </BlueText>
 
       <BlueSpacing20 />
