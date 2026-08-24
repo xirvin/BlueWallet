@@ -18,6 +18,10 @@ import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
 
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'WalletsAddMuSig2Step2'>;
 type RouteProps = RouteProp<AddWalletStackParamList, 'WalletsAddMuSig2Step2'>;
+type MuSig2VaultKeyRouteParams = AddWalletStackParamList['MuSig2VaultKey'] & {
+  requiredDerivationPath?: string;
+  onSave: (keyExpression: string, label?: string, derivationPath?: string) => void;
+};
 
 const WalletsAddMuSig2Step2: React.FC = () => {
   const { colors } = useTheme();
@@ -60,7 +64,7 @@ const WalletsAddMuSig2Step2: React.FC = () => {
 
   const editKey = useCallback(
     (index: number) => {
-      navigation.navigate('MuSig2VaultKey', {
+      const params: MuSig2VaultKeyRouteParams = {
         keyIndex: index + 1,
         walletLabel,
         initialValue: signers[index],
@@ -79,7 +83,8 @@ const WalletsAddMuSig2Step2: React.FC = () => {
             setAssignedLabels(current => current.map((value, signerIndex) => (signerIndex === index ? label : value)));
           }
         },
-      });
+      };
+      navigation.navigate('MuSig2VaultKey', params);
     },
     [navigation, requiredDerivationPath, signers, walletLabel],
   );
