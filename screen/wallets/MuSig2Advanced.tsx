@@ -7,6 +7,7 @@ import {
   MUSIG2_COLDCARD_COMPATIBLE_MODE,
   MUSIG2_NUNCHUK_COMPATIBLE_MODE,
   getMuSig2CompatibilityDescription,
+  getMuSig2CompatibilityLabel,
   getMuSig2CompatibilitySubtitle,
 } from '../../blue_modules/musig2/compatibility';
 import {
@@ -80,10 +81,10 @@ const MuSig2Advanced: React.FC = () => {
       <ListItem title={MUSIG2_WALLET_TYPE_LABEL} subtitle="Native Taproot MuSig2 wallet" checkmark bottomDivider={false} />
       <ListItem title="BIP87 signer hierarchy" subtitle="m/87'/0'/account'" bottomDivider={false} />
 
-      <Text style={[styles.header, { color: colors.outputValue }]}>MuSig2 type</Text>
+      <Text style={[styles.header, { color: colors.outputValue }]}>MuSig2 derivation</Text>
       <ListItem
         testID="MuSig2NunchukCompatible"
-        title="Nunchuk Compatible"
+        title={getMuSig2CompatibilityLabel(MUSIG2_NUNCHUK_COMPATIBLE_MODE)}
         subtitle={getMuSig2CompatibilitySubtitle(MUSIG2_NUNCHUK_COMPATIBLE_MODE)}
         onPress={() => setMode(MUSIG2_NUNCHUK_COMPATIBLE_MODE)}
         checkmark={mode === MUSIG2_NUNCHUK_COMPATIBLE_MODE}
@@ -91,7 +92,7 @@ const MuSig2Advanced: React.FC = () => {
       />
       <ListItem
         testID="MuSig2ColdcardCompatible"
-        title="COLDCARD Compatible"
+        title={getMuSig2CompatibilityLabel(MUSIG2_COLDCARD_COMPATIBLE_MODE)}
         subtitle={getMuSig2CompatibilitySubtitle(MUSIG2_COLDCARD_COMPATIBLE_MODE)}
         onPress={() => setMode(MUSIG2_COLDCARD_COMPATIBLE_MODE)}
         checkmark={mode === MUSIG2_COLDCARD_COMPATIBLE_MODE}
