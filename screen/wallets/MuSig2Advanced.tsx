@@ -66,7 +66,7 @@ const MuSig2Advanced: React.FC = () => {
       <Text style={[styles.header, { color: colors.outputValue }]}>Wallet type</Text>
       <ListItem title={MUSIG2_WALLET_TYPE_LABEL} subtitle="Native Taproot key-path wallet" checkmark bottomDivider={false} />
       <ListItem title="BIP87 signer hierarchy" subtitle="m/87'/0'/account'" bottomDivider={false} />
-      <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>Each master signer tracks its own hardened BIP87 account counter. Reusing a master seed or hardware signer in another MuSig2 vault derives that signer's next unused account, so two cosigners may legitimately have different account numbers in the same vault. Imported Nunchuk indexes are preserved, while legacy BlueWallet m/86'/0'/0' vaults remain recoverable. The vault descriptor continues to use BIP390 musig() with BIP328 aggregate derivation.</Text>
+      <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>Each master signer tracks its own hardened BIP87 account counter. Reusing a master seed or hardware signer in another MuSig2 vault derives that signer's next unused account, so two cosigners may legitimately have different account numbers in the same vault. New Vault addresses follow BIP390/Nunchuk: each account xpub derives /change/index first, the child keys are sorted and aggregated with MuSig2, and the BIP341 Taproot tweak produces the P2TR output. Legacy BlueWallet aggregate-first vaults remain on their original address chains.</Text>
 
       {Platform.OS === 'android' && <HeaderRightButton disabled={false} title="Done" onPress={done} testID="MuSig2SettingsDone" />}
     </SafeArea>
