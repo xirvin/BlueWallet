@@ -101,6 +101,8 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
         <BlueText bold>Wallet type</BlueText>
         <BlueText>{MUSIG2_WALLET_TYPE_LABEL}</BlueText>
+        <BlueText bold>Derivation model</BlueText>
+        <BlueText>BIP390 · derive signer children before MuSig2 aggregation</BlueText>
         <BlueText bold>Signer BIP87 accounts</BlueText>
         {participants.map((participant, index) => (
           <BlueText key={`${participant.publicKeyHex}-${index}`} selectable>
@@ -133,7 +135,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
       </View>
       <BlueText style={styles.note}>
-        BIP87 account indexes are tracked per master signer. The descriptor records every fingerprint, account path, and xpub needed to reconstruct the public policy.
+        Each BIP87 account xpub derives its /change/index child first. Those child public keys are sorted, aggregated with MuSig2, and then Taproot-tweaked. This is the same address model used by Nunchuk Value Keyset MuSig2 wallets.
       </BlueText>
 
       <BlueSpacing20 />
