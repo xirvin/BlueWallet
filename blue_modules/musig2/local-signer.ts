@@ -38,6 +38,11 @@ export type LocalMuSig2Round1Result = {
   nonces: LocalMuSig2NonceState[];
 };
 
+type LocalInputSignerKey = {
+  participantPublicKey: Uint8Array;
+  secretKey: Uint8Array;
+};
+
 function localWalletMatchesParticipant(wallet: HDTaprootWallet, participant: MuSig2ParticipantMetadata): boolean {
   if (!participant.xpub || !participant.masterFingerprint || !participant.derivationPath) return false;
 
@@ -55,7 +60,7 @@ function localWalletMatchesParticipant(wallet: HDTaprootWallet, participant: MuS
 }
 
 /**
- * Finds local BlueWallet BIP86 wallets that cryptographically match MuSig2
+ * Finds local BlueWallet account wallets that cryptographically match MuSig2
  * participants. Labels and creation history are deliberately ignored.
  */
 export function getLocalMuSig2SignerMatches(
@@ -68,18 +73,65 @@ export function getLocalMuSig2SignerMatches(
   });
 }
 
-function getLocalAccountSecretKey(match: LocalMuSig2SignerMatch): Uint8Array {
-  const path = match.wallet.getDerivationPath();
-  if (!path || path !== match.participant.derivationPath) {
+function isAllowedParticipantSigningPath(accountPath: string, signingPath: string): boolean {
+  if (signingPath === accountPath) return true; // historical BIP328/account-key participant
+  if (!signingPath.startsWith(`${accountPath}/`)) return false;
+  const suffix = signingPath.slice(accountPath.length);
+  return /^\/[01]\/(0|[1-9][0-9]*)$/.test(suffix);
+}
+
+/**
+ * Resolves the exact BIP373 participant key for one input from its
+ * PSBT_IN_TAP_BIP32_DERIVATION record. In a BIP390/Nunchuk wallet this is the
+ * /change/index child of the BIP87 account xpub; in historical BIP328 vaults
+ * it is the account key itself.
+ */
+function getLocalInputSignerKey(psbt: Psbt, inputIndex: number, match: LocalMuSig2SignerMatch): LocalInputSignerKey {
+  const participantSets = getMuSig2ParticipantSetsForInput(psbt, inputIndex);
+  if (participantSets.length !== 1) {
+    throw new Error(`Local MuSig2 signing requires exactly one participant set on input ${inputIndex}`);
+  }
+
+  const input = psbt.data.inputs[inputIndex];
+  if (!input) throw new Error(`MuSig2 PSBT input ${inputIndex} does not exist`);
+
+  const accountPath = match.participant.derivationPath;
+  const fingerprint = match.participant.masterFingerprint?.toLowerCase();
+  if (!accountPath || !fingerprint) {
+    throw new Error('Local MuSig2 signer is missing account origin metadata');
+  }
+  if (match.wallet.getDerivationPath() !== accountPath) {
     throw new Error('Local MuSig2 signer derivation path no longer matches the vault participant');
   }
 
-  const node = bip32.fromSeed(match.wallet._getSeed()).derivePath(path);
-  if (!node.privateKey) throw new Error('Local MuSig2 signer does not contain private key material');
-  if (!bytesEqual(node.publicKey, Uint8Array.from(Buffer.from(match.participant.publicKeyHex, 'hex')))) {
-    throw new Error('Local MuSig2 signer private key no longer matches the vault participant');
+  const root = bip32.fromSeed(match.wallet._getSeed());
+  const matches: LocalInputSignerKey[] = [];
+
+  for (const derivation of input.tapBip32Derivation ?? []) {
+    if (Buffer.from(derivation.masterFingerprint).toString('hex').toLowerCase() !== fingerprint) continue;
+    if (!isAllowedParticipantSigningPath(accountPath, derivation.path)) continue;
+
+    const node = root.derivePath(derivation.path);
+    if (!node.privateKey) continue;
+
+    const participantPublicKey = participantSets[0].participantPublicKeys.find(key => bytesEqual(key, node.publicKey));
+    if (!participantPublicKey) continue;
+    if (!bytesEqual(participantPublicKey.slice(1), derivation.pubkey)) {
+      throw new Error(`Local MuSig2 signer derivation metadata does not match participant key on input ${inputIndex}`);
+    }
+
+    matches.push({
+      participantPublicKey: new Uint8Array(participantPublicKey),
+      secretKey: new Uint8Array(node.privateKey),
+    });
   }
-  return new Uint8Array(node.privateKey);
+
+  if (matches.length !== 1) {
+    for (const candidate of matches) candidate.secretKey.fill(0);
+    throw new Error(`Could not resolve exactly one local MuSig2 participant key on input ${inputIndex}`);
+  }
+
+  return matches[0];
 }
 
 function getSigningAggregatePublicKey(psbt: Psbt, inputIndex: number): Uint8Array {
@@ -123,13 +175,12 @@ export function createLocalMuSig2Round1Response(
   match: LocalMuSig2SignerMatch,
   random32Factory: () => Uint8Array = () => randomBytes(32),
 ): LocalMuSig2Round1Result {
-  const secretKey = getLocalAccountSecretKey(match);
-  const participantPublicKey = Uint8Array.from(Buffer.from(match.participant.publicKeyHex, 'hex'));
   const response = coordinatorPsbt.clone();
   const nonces: LocalMuSig2NonceState[] = [];
 
-  try {
-    for (let inputIndex = 0; inputIndex < coordinatorPsbt.inputCount; inputIndex++) {
+  for (let inputIndex = 0; inputIndex < coordinatorPsbt.inputCount; inputIndex++) {
+    const { participantPublicKey, secretKey } = getLocalInputSignerKey(coordinatorPsbt, inputIndex, match);
+    try {
       const signingAggregatePublicKey = getSigningAggregatePublicKey(coordinatorPsbt, inputIndex);
       const random32 = random32Factory();
       if (random32.length !== 32) throw new Error('Local MuSig2 signer entropy source must return exactly 32 bytes');
@@ -153,9 +204,9 @@ export function createLocalMuSig2Round1Response(
         publicNonce: generated.publicNonce,
         secretNonce: generated.secretNonce,
       });
+    } finally {
+      secretKey.fill(0);
     }
-  } finally {
-    secretKey.fill(0);
   }
 
   return { psbt: response, nonces };
@@ -175,12 +226,11 @@ export function createLocalMuSig2Round2Response(
     throw new Error('Local MuSig2 signer nonce state is incomplete; restart the signing session');
   }
 
-  const secretKey = getLocalAccountSecretKey(match);
-  const participantPublicKey = Uint8Array.from(Buffer.from(match.participant.publicKeyHex, 'hex'));
   const response = getMuSig2Round2SignerPsbt(coordinatorPsbt);
 
-  try {
-    for (let inputIndex = 0; inputIndex < coordinatorPsbt.inputCount; inputIndex++) {
+  for (let inputIndex = 0; inputIndex < coordinatorPsbt.inputCount; inputIndex++) {
+    const { participantPublicKey, secretKey } = getLocalInputSignerKey(coordinatorPsbt, inputIndex, match);
+    try {
       const storedNonce = nonces.find(item => item.inputIndex === inputIndex);
       if (!storedNonce || !bytesEqual(storedNonce.participantPublicKey, participantPublicKey)) {
         throw new Error(`Local MuSig2 signer nonce state is missing input ${inputIndex}; restart the signing session`);
@@ -203,9 +253,9 @@ export function createLocalMuSig2Round2Response(
         context.signingAggregatePublicKey,
         partialSignature,
       );
+    } finally {
+      secretKey.fill(0);
     }
-  } finally {
-    secretKey.fill(0);
   }
 
   return response;
