@@ -22,13 +22,16 @@ function createAccount2Vault(): HDTaprootMuSig2Wallet {
 }
 
 describe('MuSig2 Nunchuk wallet export', () => {
-  it("builds a four-line BSMS 1.0 record with Nunchuk's m/87'/0'/2' signer origins", () => {
+  it("builds a four-line BSMS 1.0 record with the vault-owned m/87'/0'/2' account", () => {
     const wallet = createAccount2Vault();
     const descriptor = wallet.getBIP390Descriptor();
     const firstAddress = wallet._getExternalAddressByIndex(0);
     const record = createMuSig2WalletBSMSRecord(descriptor, firstAddress);
     const lines = record.split('\n');
 
+    assert.strictEqual(wallet.getAccountIndex(), 2);
+    assert.strictEqual(wallet.getSignerAccountDerivationPath(), "m/87'/0'/2'");
+    assert.strictEqual(JSON.parse(wallet.getCoordinatorExport()).accountIndex, 2);
     assert.strictEqual(lines.length, 4);
     assert.strictEqual(lines[0], MUSIG2_BSMS_VERSION);
     assert.strictEqual(lines[1], descriptor);
