@@ -14,6 +14,7 @@ import {
   getMuSig2SignerDerivationPath,
   taprootWalletToMuSig2KeyExpression,
 } from '../../blue_modules/musig2/vault';
+import { uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 
 const MNEMONIC_A = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -26,7 +27,7 @@ function deterministicEntropy(seed: number) {
 }
 
 describe('MuSig2 local BlueWallet signers', () => {
-  it("signs both rounds locally at Nunchuk's m/87'/0'/2' account origin", () => {
+  it("signs both rounds with /0/0 children derived from Nunchuk's m/87'/0'/2' account origins", () => {
     const signerA = createMuSig2TaprootSignerWallet(MNEMONIC_A, '', NUNCHUK_ACCOUNT_2_PATH);
     signerA.setLabel('Local A');
     const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B, '', NUNCHUK_ACCOUNT_2_PATH);
@@ -41,17 +42,24 @@ describe('MuSig2 local BlueWallet signers', () => {
       taprootWalletToMuSig2KeyExpression(signerB),
     ]);
 
+    assert.strictEqual(vault.getDerivationMode(), 'bip390-derived-participants');
     const matches = getLocalMuSig2SignerMatches(vault, [signerA, signerB]);
     assert.strictEqual(matches.length, 2);
     assert.strictEqual(matches.every(match => match.participant.derivationPath === NUNCHUK_ACCOUNT_2_PATH), true);
 
     let coordinator = createMuSig2DryRun(vault).psbt;
     assert.strictEqual(coordinator.data.globalMap.globalXpub?.every(item => item.path === NUNCHUK_ACCOUNT_2_PATH), true);
+    assert.deepStrictEqual(
+      coordinator.data.inputs[0].tapBip32Derivation?.map(item => item.path).sort(),
+      [`${NUNCHUK_ACCOUNT_2_PATH}/0/0`, `${NUNCHUK_ACCOUNT_2_PATH}/0/0`].sort(),
+    );
     const nonceStates = new Map<string, ReturnType<typeof createLocalMuSig2Round1Response>['nonces']>();
 
     matches.forEach((match, index) => {
       const response = createLocalMuSig2Round1Response(coordinator, match, deterministicEntropy(10 + index * 10));
       nonceStates.set(match.participant.publicKeyHex, response.nonces);
+      assert.strictEqual(response.nonces.length, 1);
+      assert.notStrictEqual(uint8ArrayToHex(response.nonces[0].participantPublicKey), match.participant.publicKeyHex);
       coordinator = mergeMuSig2Round1Psbt(coordinator, response.psbt).psbt;
     });
 
