@@ -79,7 +79,7 @@ const WalletsAddMuSig2: React.FC = () => {
         </Text>
         <BlueSpacing20 />
         <Text style={[styles.text, stylesHook.text]}>
-          Choose the MuSig2 address model before creating the vault. Nunchuk Compatible uses participant-first BIP390 derivation. COLDCARD Compatible uses the aggregate-first BIP328 model supported by current COLDCARD EDGE MuSig2 firmware.
+          Choose the MuSig2 derivation model before creating the vault. Participant-first is used by Nunchuk. Aggregate-first (BIP328) is used by COLDCARD (Coinkite) and Ledger. Bitcoin Core 31 supports both models.
         </Text>
       </View>
 
