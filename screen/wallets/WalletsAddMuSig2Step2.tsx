@@ -26,6 +26,7 @@ const WalletsAddMuSig2Step2: React.FC = () => {
   const { wallets } = useStorage();
   const [signers, setSigners] = useState<string[]>(() => new Array(signerCount).fill(''));
   const [assignedLabels, setAssignedLabels] = useState<string[]>(() => new Array(signerCount).fill(''));
+  const [requiredDerivationPath, setRequiredDerivationPath] = useState<string | undefined>();
   const data = useMemo(() => Array.from({ length: signerCount }, (_, index) => index), [signerCount]);
 
   const signerLabels = useMemo(
@@ -63,20 +64,29 @@ const WalletsAddMuSig2Step2: React.FC = () => {
         keyIndex: index + 1,
         walletLabel,
         initialValue: signers[index],
-        onSave: (expression, label?: string) => {
+        requiredDerivationPath,
+        onSave: (expression, label?: string, derivationPath?: string) => {
+          if (requiredDerivationPath && derivationPath && derivationPath !== requiredDerivationPath) {
+            presentAlert({
+              title: 'MuSig2 Vault account',
+              message: `All Vault Keys must use ${requiredDerivationPath}.`,
+            });
+            return;
+          }
           setSigners(current => current.map((value, signerIndex) => (signerIndex === index ? expression : value)));
+          if (!requiredDerivationPath && derivationPath) setRequiredDerivationPath(derivationPath);
           if (label !== undefined) {
             setAssignedLabels(current => current.map((value, signerIndex) => (signerIndex === index ? label : value)));
           }
         },
       });
     },
-    [navigation, signers, walletLabel],
+    [navigation, requiredDerivationPath, signers, walletLabel],
   );
 
   const continueToDescriptor = useCallback(() => {
     try {
-      const normalized = validateMuSig2VaultSigners(signers, signerCount);
+      const normalized = validateMuSig2VaultSigners(signers, signerCount, requiredDerivationPath);
       navigation.navigate('MuSig2DescriptorReview', {
         signerCount,
         walletLabel,
@@ -85,7 +95,7 @@ const WalletsAddMuSig2Step2: React.FC = () => {
     } catch (error: any) {
       presentAlert({ title: 'MuSig2 Vault validation', message: error?.message ?? String(error) });
     }
-  }, [navigation, signerCount, signers, walletLabel]);
+  }, [navigation, requiredDerivationPath, signerCount, signers, walletLabel]);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.elevated }]}>
