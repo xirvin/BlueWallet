@@ -73,7 +73,7 @@ const MuSig2DescriptorReview: React.FC = () => {
   const descriptor = useMemo(() => wallet.getBIP390Descriptor(), [wallet]);
   const receiveAddress = useMemo(() => wallet._getExternalAddressByIndex(0), [wallet]);
   const compatibilityLabel = getMuSig2CompatibilityLabel(derivationMode);
-  const isNunchukCompatible = derivationMode === 'bip390-derived-participants';
+  const isParticipantFirst = derivationMode === 'bip390-derived-participants';
 
   const createVault = useCallback(async () => {
     setIsSaving(true);
@@ -102,7 +102,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         Review MuSig2 Vault
       </BlueText>
       <BlueText style={styles.description}>
-        Confirm the quorum, Taproot wallet type, MuSig2 compatibility model, each signer's BIP87 account origin, and descriptor before saving. All signers are required for every spend.
+        Confirm the quorum, Taproot wallet type, MuSig2 derivation model, each signer's BIP87 account origin, and descriptor before saving. All signers are required for every spend.
       </BlueText>
 
       <View style={styles.details}>
@@ -112,11 +112,11 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
         <BlueText bold>Wallet type</BlueText>
         <BlueText>{MUSIG2_WALLET_TYPE_LABEL}</BlueText>
-        <BlueText bold>MuSig2 type</BlueText>
+        <BlueText bold>MuSig2 derivation</BlueText>
         <BlueText>{compatibilityLabel}</BlueText>
-        <BlueText bold>Derivation model</BlueText>
+        <BlueText bold>Derivation order</BlueText>
         <BlueText>
-          {isNunchukCompatible
+          {isParticipantFirst
             ? 'BIP390 · derive signer children before MuSig2 aggregation'
             : 'BIP390/BIP328 · aggregate signer account keys before /change/index derivation'}
         </BlueText>
