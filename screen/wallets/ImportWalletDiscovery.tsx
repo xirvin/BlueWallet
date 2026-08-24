@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigation, RouteProp, useRoute } from '@react-navigation/native';
 import { ActivityIndicator, FlatList, Platform, StyleSheet, View } from 'react-native';
 import triggerHapticFeedback, { HapticFeedbackTypes } from '../../blue_modules/hapticFeedback';
+import { parseNunchukMuSig2WalletInput } from '../../blue_modules/musig2/nunchuk';
 import BlueButtonLink from '../../components/BlueButtonLink';
 import BlueFormLabel from '../../components/BlueFormLabel';
 import BlueText from '../../components/BlueText';
@@ -78,6 +79,7 @@ const ImportWalletDiscovery: React.FC = () => {
   };
 
   useEffect(() => {
+    let cancelled = false;
     const onProgress = (data: string) => setProgress(data);
 
     const onWallet = (wallet: TWallet | THDWalletForWatchOnly) => {
@@ -116,26 +118,64 @@ const ImportWalletDiscovery: React.FC = () => {
       }
     };
 
+    // Nunchuk's Taproot MuSig2 wallet backup is not a conventional watch-only
+    // descriptor: it describes an N-of-N BIP390 aggregate whose participant
+    // account xpubs are derived before KeySort/KeyAgg. Detect it before the
+    // classic multisig/watch-only importer so the policy cannot be flattened
+    // into a different wallet type.
+    let nunchukMuSig2;
+    try {
+      nunchukMuSig2 = parseNunchukMuSig2WalletInput(importText);
+    } catch (error: any) {
+      setLoading(false);
+      presentAlert({ title: 'Nunchuk MuSig2 import', message: error?.message ?? String(error) });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (nunchukMuSig2) {
+      onProgress('Nunchuk MuSig2');
+      void (async () => {
+        try {
+          if (!isElectrumDisabled) await nunchukMuSig2.wallet.fetchBalance();
+          if (cancelled) return;
+          onWallet(nunchukMuSig2.wallet);
+          saveWallet(nunchukMuSig2.wallet);
+        } catch (error: any) {
+          if (!cancelled) presentAlert({ title: 'Nunchuk MuSig2 import', message: error?.message ?? String(error) });
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     task.current = startImport(importText, askPassphrase, searchAccounts, isElectrumDisabled, onProgress, onWallet, onPassword);
 
     task.current.promise
-      .then(({ cancelled, wallets: w }) => {
-        if (cancelled) return;
+      .then(({ cancelled: importCancelled, wallets: w }) => {
+        if (importCancelled || cancelled) return;
         if (w.length === 1) saveWallet(w[0]); // Instantly save wallet if only one has been discovered
         if (w.length === 0) {
           triggerHapticFeedback(HapticFeedbackTypes.ImpactLight);
         }
       })
       .catch(e => {
+        if (cancelled) return;
         console.warn('import error', e);
         console.warn('err.stack', e.stack);
         presentAlert({ title: 'Import error', message: e.message });
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
 
     return () => {
+      cancelled = true;
       task.current?.stop();
     };
   }, [askPassphrase, importText, isElectrumDisabled, navigation, saveWallet, searchAccounts]);
