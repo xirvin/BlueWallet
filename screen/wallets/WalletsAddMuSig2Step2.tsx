@@ -4,6 +4,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 
 import { normalizeMuSig2VaultSigner, taprootWalletToMuSig2KeyExpression, validateMuSig2VaultSigners } from '../../blue_modules/musig2/vault';
+import type { MuSig2DerivationMode } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
 import Button from '../../components/Button';
@@ -17,15 +18,21 @@ import { useStorage } from '../../hooks/context/useStorage';
 import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
 
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'WalletsAddMuSig2Step2'>;
-type RouteProps = RouteProp<AddWalletStackParamList, 'WalletsAddMuSig2Step2'>;
+type MuSig2Step2Params = AddWalletStackParamList['WalletsAddMuSig2Step2'] & {
+  derivationMode: MuSig2DerivationMode;
+};
+type RouteProps = RouteProp<{ WalletsAddMuSig2Step2: MuSig2Step2Params }, 'WalletsAddMuSig2Step2'>;
 type MuSig2VaultKeyRouteParams = AddWalletStackParamList['MuSig2VaultKey'] & {
   onSave: (keyExpression: string, label?: string) => void;
+};
+type MuSig2DescriptorReviewParams = AddWalletStackParamList['MuSig2DescriptorReview'] & {
+  derivationMode: MuSig2DerivationMode;
 };
 
 const WalletsAddMuSig2Step2: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
-  const { signerCount, walletLabel } = useRoute<RouteProps>().params;
+  const { signerCount, walletLabel, derivationMode } = useRoute<RouteProps>().params;
   const { wallets } = useStorage();
   const [signers, setSigners] = useState<string[]>(() => new Array(signerCount).fill(''));
   const [assignedLabels, setAssignedLabels] = useState<string[]>(() => new Array(signerCount).fill(''));
@@ -81,15 +88,17 @@ const WalletsAddMuSig2Step2: React.FC = () => {
   const continueToDescriptor = useCallback(() => {
     try {
       const normalized = validateMuSig2VaultSigners(signers, signerCount);
-      navigation.navigate('MuSig2DescriptorReview', {
+      const params: MuSig2DescriptorReviewParams = {
         signerCount,
         walletLabel,
         signerExpressions: normalized,
-      });
+        derivationMode,
+      };
+      navigation.navigate('MuSig2DescriptorReview', params);
     } catch (error: any) {
       presentAlert({ title: 'MuSig2 Vault validation', message: error?.message ?? String(error) });
     }
-  }, [navigation, signerCount, signers, walletLabel]);
+  }, [derivationMode, navigation, signerCount, signers, walletLabel]);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.elevated }]}>
