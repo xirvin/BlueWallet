@@ -33,7 +33,6 @@ export type MuSig2CoordinatorExport = {
   rootFingerprint: string;
   aggregatePublicKey: string;
   xpub: string;
-  accountIndex?: number;
   descriptor?: string;
   participants: MuSig2ParticipantMetadata[];
 };
@@ -180,15 +179,6 @@ function descriptorOrigin(participant: MuSig2ParticipantMetadata): string {
   return `[${participant.masterFingerprint}${path}]${participant.xpub}`;
 }
 
-function parseBip87AccountIndex(path?: string): number | undefined {
-  if (!path) return undefined;
-  const normalized = path.trim().replace(/[hH]/g, "'");
-  const match = normalized.match(/^m\/87'\/0'\/(0|[1-9][0-9]*)'$/);
-  if (!match) return undefined;
-  const accountIndex = Number(match[1]);
-  return Number.isSafeInteger(accountIndex) && accountIndex <= 0x7fffffff ? accountIndex : undefined;
-}
-
 /**
  * Parses the BIP380 extended-key expression exported by hardware wallets, for
  * example [f23a9cde/87h/0h/0h]xpub.... Bare compressed public keys remain
@@ -225,9 +215,9 @@ export function parseMuSig2ParticipantKeyExpression(input: string): MuSig2Partic
 
 /**
  * Watch-capable MuSig2 Taproot wallet using the BIP328 synthetic xpub scheme.
- * The BIP87 account index belongs to the vault and is inferred from all signer
- * origins. Signing support is kept in the MuSig2 session module so secret
- * nonces never become part of wallet serialization.
+ * BIP87 account metadata is stored independently on each participant, matching
+ * Nunchuk's per-master-signer account allocation. Signing support is kept in
+ * the MuSig2 session module so secret nonces never become serialized state.
  */
 export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   static readonly type = 'HDtaprootMuSig2';
@@ -244,20 +234,15 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   private _aggregatePublicKeyHex = '';
   private _participants: MuSig2ParticipantMetadata[] = [];
-  private _accountIndex?: number;
 
   static fromJson(obj: string): HDTaprootMuSig2Wallet {
     const wallet = super.fromJson(obj) as unknown as HDTaprootMuSig2Wallet;
 
     if (wallet._participants?.length) {
       const storedAggregate = wallet._aggregatePublicKeyHex.toLowerCase();
-      const storedAccountIndex = wallet._accountIndex;
       wallet.setParticipants(wallet._participants);
       if (storedAggregate && storedAggregate !== wallet._aggregatePublicKeyHex) {
         throw new Error('Serialized MuSig2 aggregate public key does not match participant metadata');
-      }
-      if (storedAccountIndex !== undefined && storedAccountIndex !== wallet._accountIndex) {
-        throw new Error('Serialized MuSig2 account index does not match participant metadata');
       }
     } else if (wallet._aggregatePublicKeyHex) {
       wallet.setAggregatePublicKey(wallet._aggregatePublicKeyHex);
@@ -311,22 +296,6 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       throw new Error('MuSig2 signer public keys must be distinct');
     }
 
-    const bip87Indexes = normalized
-      .map(participant => parseBip87AccountIndex(participant.derivationPath))
-      .filter((accountIndex): accountIndex is number => accountIndex !== undefined);
-    if (bip87Indexes.length > 0 && bip87Indexes.length !== normalized.length) {
-      throw new Error('MuSig2 Vault cannot mix BIP87 account signers with other signer derivation schemes');
-    }
-    if (bip87Indexes.length === normalized.length) {
-      const uniqueAccountIndexes = new Set(bip87Indexes);
-      if (uniqueAccountIndexes.size !== 1) {
-        throw new Error('All MuSig2 BIP87 signers must use the same vault account index');
-      }
-      this._accountIndex = bip87Indexes[0];
-    } else {
-      this._accountIndex = undefined;
-    }
-
     const participantKeys = normalized.map(participant => hexToUint8Array(participant.publicKeyHex));
     this._participants = normalized;
     this.setAggregatePublicKey(getPlainPublicKey(keyAgg(participantKeys)));
@@ -357,16 +326,6 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   getSignerCount(): number {
     return this._participants.length;
-  }
-
-  getAccountIndex(): number | undefined {
-    return this._accountIndex;
-  }
-
-  getSignerAccountDerivationPath(): string | undefined {
-    if (this._accountIndex !== undefined) return `m/87'/0'/${this._accountIndex}'`;
-    const paths = new Set(this._participants.map(participant => participant.derivationPath).filter(Boolean));
-    return paths.size === 1 ? ([...paths][0] as string) : undefined;
   }
 
   hasParticipantPublicKeys(): boolean {
@@ -410,7 +369,6 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       rootFingerprint: this.getMuSig2RootFingerprint(),
       aggregatePublicKey: uint8ArrayToHex(this.getAggregatePublicKey()),
       xpub: this.getXpub(),
-      ...(this._accountIndex !== undefined ? { accountIndex: this._accountIndex } : {}),
       ...(this.hasCompleteExtendedParticipantMetadata() ? { descriptor: this.getBIP390Descriptor() } : {}),
       participants: this.getParticipants(),
     };
