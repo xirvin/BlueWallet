@@ -12,11 +12,15 @@ import { BlueSpacing20 } from './BlueSpacing';
 
 const { height, width } = Dimensions.get('window');
 
+type DynamicQRCodeProtocol = 'auto' | 'BBQR' | 'URv2';
+
 interface DynamicQRCodeProps {
   value: string;
   walletID?: string;
   capacity?: number;
   hideControls?: boolean;
+  protocol?: DynamicQRCodeProtocol;
+  showProtocolControls?: boolean;
 }
 
 interface DynamicQRCodeState {
@@ -55,9 +59,16 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
   }
 
   componentDidMount() {
-    const { value, capacity = 175, hideControls = true, walletID } = this.props;
+    this.buildFragmentsFromProps();
+  }
+
+  buildFragmentsFromProps = () => {
+    const { value, capacity = 175, hideControls = true, walletID, protocol = 'auto' } = this.props;
     try {
-      this.fragments = encodeUR(value, capacity, walletID ?? null);
+      this.fragments =
+        protocol === 'BBQR'
+          ? this.buildRenderableBBQRFragments()
+          : encodeUR(value, capacity, walletID ?? null, protocol === 'URv2' ? 'URv2' : undefined);
       this.setState(
         {
           index: 0,
@@ -74,7 +85,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
       console.log(e);
       this.setState({ displayQRCode: false, hideControls, renderError: errorMessage(e) });
     }
-  }
+  };
 
   moveToNextFragment = () => {
     const { index, total } = this.state;
@@ -199,6 +210,7 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
 
   render() {
     const currentFragment = this.fragments[this.state.index];
+    const { showProtocolControls = true } = this.props;
 
     if (!currentFragment && this.state.displayQRCode) {
       return (
@@ -277,14 +289,16 @@ export class DynamicQRCode extends Component<DynamicQRCodeProps, DynamicQRCodeSt
               </TouchableOpacity>
             </View>
 
-            <View style={animatedQRCodeStyle.controller2}>
-              <TouchableOpacity accessibilityRole="button" style={animatedQRCodeStyle.buttonUseFormat} onPress={this.forceUseBBQR}>
-                <Text style={animatedQRCodeStyle.text}>Force use BBQr</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" style={animatedQRCodeStyle.buttonUseFormat} onPress={this.forceUseURv2}>
-                <Text style={animatedQRCodeStyle.text}>Force use URv2</Text>
-              </TouchableOpacity>
-            </View>
+            {showProtocolControls && (
+              <View style={animatedQRCodeStyle.controller2}>
+                <TouchableOpacity accessibilityRole="button" style={animatedQRCodeStyle.buttonUseFormat} onPress={this.forceUseBBQR}>
+                  <Text style={animatedQRCodeStyle.text}>Force use BBQr</Text>
+                </TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" style={animatedQRCodeStyle.buttonUseFormat} onPress={this.forceUseURv2}>
+                  <Text style={animatedQRCodeStyle.text}>Force use URv2</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
       </View>
