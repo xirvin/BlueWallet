@@ -9,6 +9,7 @@ import {
   assertMuSig2ParticipantAccountAvailable,
   createMuSig2TaprootSignerWalletForVault,
   deriveMuSig2TaprootSignerAccountWalletForVault,
+  getMuSig2LocalSignerMasterFingerprint,
   isMuSig2TaprootSignerMnemonic,
   normalizeMuSig2VaultSigner,
   parseMuSig2SignerDerivationPath,
@@ -64,17 +65,20 @@ const MuSig2VaultKey: React.FC = () => {
     () => wallets.filter(wallet => wallet.type === HDTaprootMuSig2Wallet.type) as HDTaprootMuSig2Wallet[],
     [wallets],
   );
-  const existingMuSig2SignerWallets = useMemo(
-    () =>
-      allTaprootWallets.filter(wallet => {
-        try {
-          return parseMuSig2SignerDerivationPath(wallet.getDerivationPath()).scheme === 'nunchuk-bip87';
-        } catch {
-          return false;
-        }
-      }),
-    [allTaprootWallets],
-  );
+  const existingMuSig2SignerWallets = useMemo(() => {
+    const seenMasterFingerprints = new Set<string>();
+    return allTaprootWallets.filter(wallet => {
+      try {
+        if (parseMuSig2SignerDerivationPath(wallet.getDerivationPath()).scheme !== 'nunchuk-bip87') return false;
+        const fingerprint = getMuSig2LocalSignerMasterFingerprint(wallet);
+        if (seenMasterFingerprints.has(fingerprint)) return false;
+        seenMasterFingerprints.add(fingerprint);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }, [allTaprootWallets]);
 
   const createMnemonicAccountWallet = useCallback(
     (mnemonic: string, signerPassphrase: string) =>
@@ -243,18 +247,20 @@ const MuSig2VaultKey: React.FC = () => {
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingMuSig2SignerWallets.length === 0) {
-      presentAlert({ message: "No existing Nunchuk-style m/87'/0'/account' MuSig2 signer accounts are available." });
+      presentAlert({ message: "No existing Nunchuk-style m/87'/0'/account' MuSig2 master signers are available." });
       return;
     }
 
     const options = [
-      ...existingMuSig2SignerWallets.map(wallet => `${wallet.getLabel()} · ${wallet.getDerivationPath()}`),
+      ...existingMuSig2SignerWallets.map(
+        wallet => `${wallet.getLabel()} · ${getMuSig2LocalSignerMasterFingerprint(wallet).toUpperCase()}`,
+      ),
       'Cancel',
     ];
     const cancelButtonIndex = options.length - 1;
     ActionSheet.showActionSheetWithOptions(
       {
-        title: 'Use existing MuSig2 signer',
+        title: 'Reuse existing master signer',
         message: "BlueWallet tracks BIP87 use per master signer. If the selected master seed already participates in another MuSig2 vault, its next unused m/87'/0'/account' key is derived automatically.",
         options,
         cancelButtonIndex,
