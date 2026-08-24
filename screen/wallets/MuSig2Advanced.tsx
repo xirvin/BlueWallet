@@ -6,7 +6,6 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   MUSIG2_MAX_SIGNERS,
   MUSIG2_MIN_SIGNERS,
-  MUSIG2_SIGNER_DERIVATION,
   MUSIG2_WALLET_TYPE_LABEL,
   clampMuSig2SignerCount,
 } from '../../blue_modules/musig2/vault';
@@ -66,8 +65,8 @@ const MuSig2Advanced: React.FC = () => {
 
       <Text style={[styles.header, { color: colors.outputValue }]}>Wallet type</Text>
       <ListItem title={MUSIG2_WALLET_TYPE_LABEL} subtitle="Native Taproot key-path wallet" checkmark bottomDivider={false} />
-      <ListItem title="Default signer derivation" subtitle={MUSIG2_SIGNER_DERIVATION} bottomDivider={false} />
-      <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>New local Vault Keys use Nunchuk's mainnet m/87'/0'/account' signer convention, with account 0 by default. Imported Nunchuk account indexes are preserved, and legacy BlueWallet m/86'/0'/0' vaults remain recoverable. The vault descriptor continues to use BIP390 musig() with BIP328 aggregate derivation.</Text>
+      <ListItem title="BIP87 account hierarchy" subtitle="m/87'/0'/account'" bottomDivider={false} />
+      <Text style={[styles.subtitle, { color: colors.alternativeTextColor }]}>The hardened account belongs to the vault, not the signer slot. When the same local master seed is reused in another MuSig2 vault, BlueWallet derives its next unused BIP87 account instead of reusing the previous account xpub. All Vault Keys in one vault use the same account index. Imported Nunchuk account indexes are preserved, and legacy BlueWallet m/86'/0'/0' vaults remain recoverable. The vault descriptor continues to use BIP390 musig() with BIP328 aggregate derivation.</Text>
 
       {Platform.OS === 'android' && <HeaderRightButton disabled={false} title="Done" onPress={done} testID="MuSig2SettingsDone" />}
     </SafeArea>
