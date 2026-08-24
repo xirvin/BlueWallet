@@ -5,7 +5,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { CoinSelectReturnInput } from 'coinselect';
 
 import ecc from '../../blue_modules/noble_ecc';
-import { bytesEqual, getPlainPublicKey, keyAgg, parsePlainPublicKey } from '../../blue_modules/musig2/key-aggregation';
+import { bytesEqual, getPlainPublicKey, keyAgg, keySort, parsePlainPublicKey } from '../../blue_modules/musig2/key-aggregation';
 import { addMuSig2ParticipantsToInput, addMuSig2ParticipantsToOutput } from '../../blue_modules/musig2/psbt';
 import { hexToUint8Array, uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
 import { descriptorWithChecksum } from '../wallet-descriptor';
@@ -16,6 +16,8 @@ const bip32 = BIP32Factory(ecc);
 const BIP328_CHAIN_CODE = hexToUint8Array('868087ca02a6f974c4598924c36b57762d32cb45717167e300622c7167e38965');
 const MIN_MUSIG2_SIGNERS = 2;
 const MAX_MUSIG2_SIGNERS = 7;
+
+export type MuSig2DerivationMode = 'legacy-bip328' | 'bip390-derived-participants';
 
 export type MuSig2ParticipantMetadata = {
   publicKeyHex: string;
@@ -32,9 +34,20 @@ export type MuSig2CoordinatorExport = {
   root: 'm';
   rootFingerprint: string;
   aggregatePublicKey: string;
-  xpub: string;
+  derivationMode?: MuSig2DerivationMode;
+  xpub?: string;
   descriptor?: string;
   participants: MuSig2ParticipantMetadata[];
+};
+
+type DerivedParticipant = {
+  participant: MuSig2ParticipantMetadata;
+  publicKey: Uint8Array;
+};
+
+type AddressParticipantSet = {
+  aggregatePublicKey: Uint8Array;
+  participantPublicKeys: Uint8Array[];
 };
 
 function assertParticipantCount(count: number): void {
@@ -162,13 +175,16 @@ function normalizeParticipant(participant: MuSig2ParticipantMetadata): MuSig2Par
   return normalized;
 }
 
-function compareParticipantKeys(a: MuSig2ParticipantMetadata, b: MuSig2ParticipantMetadata): number {
-  const aa = hexToUint8Array(a.publicKeyHex);
-  const bb = hexToUint8Array(b.publicKeyHex);
-  for (let i = 0; i < aa.length; i++) {
-    if (aa[i] !== bb[i]) return aa[i] - bb[i];
+function compareBytes(a: Uint8Array, b: Uint8Array): number {
+  const length = Math.min(a.length, b.length);
+  for (let i = 0; i < length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
   }
-  return 0;
+  return a.length - b.length;
+}
+
+function compareParticipantKeys(a: MuSig2ParticipantMetadata, b: MuSig2ParticipantMetadata): number {
+  return compareBytes(hexToUint8Array(a.publicKeyHex), hexToUint8Array(b.publicKeyHex));
 }
 
 function descriptorOrigin(participant: MuSig2ParticipantMetadata): string {
@@ -177,6 +193,17 @@ function descriptorOrigin(participant: MuSig2ParticipantMetadata): string {
   }
   const path = participant.derivationPath === 'm' ? '' : `/${participant.derivationPath.slice(2).replace(/'/g, 'h')}`;
   return `[${participant.masterFingerprint}${path}]${participant.xpub}`;
+}
+
+function isMuSig2DerivationMode(value: unknown): value is MuSig2DerivationMode {
+  return value === 'legacy-bip328' || value === 'bip390-derived-participants';
+}
+
+function isLegacyBlueWalletParticipantSet(participants: MuSig2ParticipantMetadata[]): boolean {
+  return (
+    participants.length > 0 &&
+    participants.every(participant => participant.derivationPath?.replace(/[hH]/g, "'") === "m/86'/0'/0'")
+  );
 }
 
 /**
@@ -214,10 +241,11 @@ export function parseMuSig2ParticipantKeyExpression(input: string): MuSig2Partic
 }
 
 /**
- * Watch-capable MuSig2 Taproot wallet using the BIP328 synthetic xpub scheme.
- * BIP87 account metadata is stored independently on each participant, matching
- * Nunchuk's per-master-signer account allocation. Signing support is kept in
- * the MuSig2 session module so secret nonces never become serialized state.
+ * Watch-capable MuSig2 Taproot wallet. New extended-key vaults follow BIP390:
+ * derive each participant xpub to /change/index, KeySort the resulting child
+ * public keys, then KeyAgg. Existing serialized BlueWallet vaults without an
+ * explicit mode remain on their historical BIP328 aggregate-first derivation
+ * so their addresses can never change during an upgrade.
  */
 export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   static readonly type = 'HDtaprootMuSig2';
@@ -234,9 +262,15 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   private _aggregatePublicKeyHex = '';
   private _participants: MuSig2ParticipantMetadata[] = [];
+  private _derivationMode: MuSig2DerivationMode = 'bip390-derived-participants';
 
   static fromJson(obj: string): HDTaprootMuSig2Wallet {
+    const parsed = JSON.parse(obj) as { _derivationMode?: unknown };
     const wallet = super.fromJson(obj) as unknown as HDTaprootMuSig2Wallet;
+
+    // Wallets serialized before the derived-participant migration used BIP328
+    // aggregate-first derivation, including early BIP87 experiments.
+    wallet._derivationMode = isMuSig2DerivationMode(parsed._derivationMode) ? parsed._derivationMode : 'legacy-bip328';
 
     if (wallet._participants?.length) {
       const storedAggregate = wallet._aggregatePublicKeyHex.toLowerCase();
@@ -249,6 +283,24 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     }
 
     return wallet;
+  }
+
+  setDerivationMode(mode: MuSig2DerivationMode): this {
+    if (!isMuSig2DerivationMode(mode)) throw new Error('Unsupported MuSig2 derivation mode');
+    this._derivationMode = mode;
+    this._node0 = undefined;
+    this._node1 = undefined;
+    this.external_addresses_cache = {};
+    this.internal_addresses_cache = {};
+    return this;
+  }
+
+  getDerivationMode(): MuSig2DerivationMode {
+    return this._derivationMode;
+  }
+
+  usesDerivedParticipantKeys(): boolean {
+    return this._derivationMode === 'bip390-derived-participants';
   }
 
   setAggregatePublicKey(publicKey: Uint8Array | string): this {
@@ -303,6 +355,7 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   }
 
   setParticipantPublicKeys(publicKeys: Array<Uint8Array | string>): this {
+    this.setDerivationMode('legacy-bip328');
     return this.setParticipants(
       publicKeys.map(publicKey => ({
         publicKeyHex: typeof publicKey === 'string' ? publicKey : uint8ArrayToHex(publicKey),
@@ -317,6 +370,13 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     if (xpubCount !== 0 && xpubCount !== participants.length) {
       throw new Error('Use hardware xpub key expressions for every signer or bare public keys for every signer; mixed MuSig2 signer modes are not supported');
     }
+
+    if (xpubCount === 0 || isLegacyBlueWalletParticipantSet(participants)) {
+      this.setDerivationMode('legacy-bip328');
+    } else {
+      this.setDerivationMode('bip390-derived-participants');
+    }
+
     return this.setParticipants(participants);
   }
 
@@ -352,8 +412,26 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       throw new Error('BIP390 descriptor requires a [fingerprint/path]xpub key expression for every signer');
     }
 
-    const keys = this._participants.map(descriptorOrigin).join(',');
-    const descriptor = `tr(musig(${keys})/<0;1>/*)`;
+    const descriptor = this.usesDerivedParticipantKeys()
+      ? `tr(musig(${this._participants.map(participant => `${descriptorOrigin(participant)}/<0;1>/*`).join(',')}))`
+      : `tr(musig(${this._participants.map(descriptorOrigin).join(',')})/<0;1>/*)`;
+    return includeChecksum ? descriptorWithChecksum(descriptor) : descriptor;
+  }
+
+  getNunchukDescriptor(
+    path: 'any' | 'external' | 'internal' | 'multipath' = 'any',
+    includeChecksum = true,
+  ): string {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('Nunchuk descriptor requires a [fingerprint/path]xpub key expression for every signer');
+    }
+    if (!this.usesDerivedParticipantKeys()) {
+      throw new Error('Nunchuk export is only available for BIP390 derived-participant MuSig2 vaults');
+    }
+
+    const suffix =
+      path === 'external' ? '/0/*' : path === 'internal' ? '/1/*' : path === 'multipath' ? '/<0;1>/*' : '/*';
+    const descriptor = `tr(musig(${this._participants.map(participant => `${descriptorOrigin(participant)}${suffix}`).join(',')}))`;
     return includeChecksum ? descriptorWithChecksum(descriptor) : descriptor;
   }
 
@@ -368,7 +446,8 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       root: 'm',
       rootFingerprint: this.getMuSig2RootFingerprint(),
       aggregatePublicKey: uint8ArrayToHex(this.getAggregatePublicKey()),
-      xpub: this.getXpub(),
+      derivationMode: this.getDerivationMode(),
+      ...(this.usesDerivedParticipantKeys() ? {} : { xpub: this.getXpub() }),
       ...(this.hasCompleteExtendedParticipantMetadata() ? { descriptor: this.getBIP390Descriptor() } : {}),
       participants: this.getParticipants(),
     };
@@ -378,7 +457,14 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
 
   getID(): string {
     if (!this._aggregatePublicKeyHex) return super.getID();
-    return uint8ArrayToHex(sha256(`${this.type}:${this._aggregatePublicKeyHex}`));
+    if (!this.usesDerivedParticipantKeys()) {
+      return uint8ArrayToHex(sha256(`${this.type}:${this._aggregatePublicKeyHex}`));
+    }
+
+    const participantIdentity = this._participants
+      .map(participant => `${participant.masterFingerprint ?? ''}:${participant.derivationPath ?? ''}:${participant.xpub ?? participant.publicKeyHex}`)
+      .join('|');
+    return uint8ArrayToHex(sha256(`${this.type}:${this._derivationMode}:${participantIdentity}`));
   }
 
   getXpub(): string {
@@ -393,24 +479,85 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     return address;
   }
 
+  private getDerivedParticipants(node: 0 | 1, index: number): DerivedParticipant[] {
+    if (!this.hasCompleteExtendedParticipantMetadata()) {
+      throw new Error('BIP390 address derivation requires complete participant xpub metadata');
+    }
+    if (!Number.isInteger(index) || index < 0 || index > 0x7fffffff) {
+      throw new Error('MuSig2 address index must be between 0 and 2^31-1');
+    }
+
+    return this._participants
+      .map(participant => ({
+        participant,
+        publicKey: new Uint8Array(bip32.fromBase58(participant.xpub!).derive(node).derive(index).publicKey),
+      }))
+      .sort((a, b) => compareBytes(a.publicKey, b.publicKey));
+  }
+
+  getAddressParticipantPublicKeys(node: 0 | 1, index: number): Uint8Array[] {
+    if (!this.usesDerivedParticipantKeys()) {
+      return this._participants.map(participant => hexToUint8Array(participant.publicKeyHex));
+    }
+    return this.getDerivedParticipants(node, index).map(item => new Uint8Array(item.publicKey));
+  }
+
+  getAddressAggregatePublicKey(node: 0 | 1, index: number): Uint8Array {
+    if (!this.usesDerivedParticipantKeys()) {
+      return new Uint8Array(this._getNodeByIndex(node, index).publicKey);
+    }
+    return getPlainPublicKey(keyAgg(this.getAddressParticipantPublicKeys(node, index)));
+  }
+
   _getNodePubkeyByIndex(node: number, index: number): Uint8Array {
     if (node !== 0 && node !== 1) throw new Error('MuSig2 derivation branch must be 0 or 1');
-    return this._getNodeByIndex(node, index).publicKey.slice(1);
+    return this.getAddressAggregatePublicKey(node, index).slice(1);
   }
 
-  private getParticipantPublicKeys(): Uint8Array[] {
-    return this._participants.map(participant => hexToUint8Array(participant.publicKeyHex));
+  _getNodeAddressByIndex(node: 0 | 1, index: number): string {
+    if (!this.usesDerivedParticipantKeys()) return super._getNodeAddressByIndex(node, index);
+
+    const cache = node === 0 ? this.external_addresses_cache : this.internal_addresses_cache;
+    if (cache[index]) return cache[index];
+
+    const { address } = bitcoin.payments.p2tr({ internalPubkey: this._getNodePubkeyByIndex(node, index) });
+    if (!address) throw new Error('Could not create MuSig2 Taproot address');
+    return (cache[index] = address);
   }
 
-  private getParticipantTapBip32Derivations() {
+  private getParticipantSet(node: 0 | 1, index: number): AddressParticipantSet {
+    if (!this.usesDerivedParticipantKeys()) {
+      return {
+        aggregatePublicKey: this.getAggregatePublicKey(),
+        participantPublicKeys: this._participants.map(participant => hexToUint8Array(participant.publicKeyHex)),
+      };
+    }
+
+    const participantPublicKeys = this.getAddressParticipantPublicKeys(node, index);
+    return {
+      aggregatePublicKey: getPlainPublicKey(keyAgg(participantPublicKeys)),
+      participantPublicKeys,
+    };
+  }
+
+  private getParticipantTapBip32Derivations(node: 0 | 1, index: number) {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
       throw new Error('MuSig2 hardware signing requires a [fingerprint/path]xpub key expression for every signer');
     }
 
-    return this._participants.map(participant => ({
-      pubkey: hexToUint8Array(participant.publicKeyHex).slice(1),
+    if (!this.usesDerivedParticipantKeys()) {
+      return this._participants.map(participant => ({
+        pubkey: hexToUint8Array(participant.publicKeyHex).slice(1),
+        masterFingerprint: hexToUint8Array(participant.masterFingerprint!),
+        path: participant.derivationPath!,
+        leafHashes: [] as Uint8Array[],
+      }));
+    }
+
+    return this.getDerivedParticipants(node, index).map(({ participant, publicKey }) => ({
+      pubkey: publicKey.slice(1),
       masterFingerprint: hexToUint8Array(participant.masterFingerprint!),
-      path: participant.derivationPath!,
+      path: `${participant.derivationPath}/${node}/${index}`,
       leafHashes: [] as Uint8Array[],
     }));
   }
@@ -428,6 +575,12 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     psbt.updateGlobal({ globalXpub });
   }
 
+  private getAddressLocation(path: string): { node: 0 | 1; index: number } {
+    const match = path.match(/^m\/([01])\/(0|[1-9][0-9]*)$/);
+    if (!match) throw new Error(`Invalid MuSig2 wallet-relative derivation path: ${path}`);
+    return { node: Number(match[1]) as 0 | 1, index: Number(match[2]) };
+  }
+
   _addPsbtInput(psbt: Psbt, input: CoinSelectReturnInput, sequence: number, _masterFingerprintBuffer: Uint8Array): Psbt {
     if (!this.hasCompleteExtendedParticipantMetadata()) {
       throw new Error('MuSig2 Round 1 requires a [fingerprint/path]xpub key expression for every signer');
@@ -437,9 +590,21 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
     const internalKey = this._getPubkeyByAddress(input.address);
     const path = this._getDerivationPathByAddress(input.address);
     if (!internalKey || !path) throw new Error('Could not locate MuSig2 UTXO derivation path');
+    const { node, index } = this.getAddressLocation(path);
+    const participantSet = this.getParticipantSet(node, index);
 
     const p2tr = bitcoin.payments.p2tr({ internalPubkey: internalKey });
     if (!p2tr.output) throw new Error('Could not build MuSig2 Taproot witness output');
+
+    const tapBip32Derivation = this.getParticipantTapBip32Derivations(node, index);
+    if (!this.usesDerivedParticipantKeys()) {
+      tapBip32Derivation.push({
+        pubkey: new Uint8Array(internalKey),
+        masterFingerprint: hexToUint8Array(this.getMuSig2RootFingerprint()),
+        path,
+        leafHashes: [] as Uint8Array[],
+      });
+    }
 
     psbt.addInput({
       hash: input.txid,
@@ -449,19 +614,16 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
         script: p2tr.output,
         value: BigInt(input.value),
       },
-      tapBip32Derivation: [
-        ...this.getParticipantTapBip32Derivations(),
-        {
-          pubkey: new Uint8Array(internalKey),
-          masterFingerprint: hexToUint8Array(this.getMuSig2RootFingerprint()),
-          path,
-          leafHashes: [],
-        },
-      ],
+      tapBip32Derivation,
       tapInternalKey: new Uint8Array(internalKey),
     });
 
-    addMuSig2ParticipantsToInput(psbt, psbt.inputCount - 1, this.getAggregatePublicKey(), this.getParticipantPublicKeys());
+    addMuSig2ParticipantsToInput(
+      psbt,
+      psbt.inputCount - 1,
+      participantSet.aggregatePublicKey,
+      participantSet.participantPublicKeys,
+    );
     return psbt;
   }
 
@@ -487,18 +649,27 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
       const path = this._getDerivationPathByAddress(String(output.address));
       const internalKey = this._getPubkeyByAddress(String(output.address));
       if (!path || !internalKey) return;
+      const { node, index } = this.getAddressLocation(path);
+      const participantSet = this.getParticipantSet(node, index);
 
-      result.psbt.data.outputs[outputIndex].tapInternalKey = new Uint8Array(internalKey);
-      result.psbt.data.outputs[outputIndex].tapBip32Derivation = [
-        ...this.getParticipantTapBip32Derivations(),
-        {
+      const tapBip32Derivation = this.getParticipantTapBip32Derivations(node, index);
+      if (!this.usesDerivedParticipantKeys()) {
+        tapBip32Derivation.push({
           pubkey: new Uint8Array(internalKey),
           masterFingerprint: hexToUint8Array(this.getMuSig2RootFingerprint()),
           path,
-          leafHashes: [],
-        },
-      ];
-      addMuSig2ParticipantsToOutput(result.psbt, outputIndex, this.getAggregatePublicKey(), this.getParticipantPublicKeys());
+          leafHashes: [] as Uint8Array[],
+        });
+      }
+
+      result.psbt.data.outputs[outputIndex].tapInternalKey = new Uint8Array(internalKey);
+      result.psbt.data.outputs[outputIndex].tapBip32Derivation = tapBip32Derivation;
+      addMuSig2ParticipantsToOutput(
+        result.psbt,
+        outputIndex,
+        participantSet.aggregatePublicKey,
+        participantSet.participantPublicKeys,
+      );
     });
 
     return result;
@@ -527,7 +698,9 @@ export class HDTaprootMuSig2Wallet extends AbstractHDElectrumWallet {
   }
 
   allowXpub(): boolean {
-    return true;
+    // A BIP328 synthetic aggregate xpub is not an address xpub for a BIP390
+    // derived-participant wallet, so do not expose it as if it were one.
+    return !this.usesDerivedParticipantKeys();
   }
 
   allowSignVerifyMessage(): boolean {
