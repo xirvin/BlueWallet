@@ -7,6 +7,7 @@ import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wal
 import { BlueSpacing10, BlueSpacing20 } from '../../components/BlueSpacing';
 import BlueText from '../../components/BlueText';
 import CopyTextToClipboard from '../../components/CopyTextToClipboard';
+import { DynamicQRCode } from '../../components/DynamicQRCode';
 import Icon from '../../components/Icon';
 import QRCode from '../../components/QRCode';
 import SafeArea from '../../components/SafeArea';
@@ -42,7 +43,11 @@ const MuSig2NunchukExport: React.FC = () => {
   const descriptor = useMemo(() => {
     if (!muSig2Wallet) return undefined;
     try {
-      return muSig2Wallet.getBIP390Descriptor();
+      // Nunchuk BSMS/descriptor exports use DescriptorPath::ANY, which appends
+      // /* to every BIP87 participant xpub before musig(). This is deliberately
+      // different from BlueWallet's generic multipath BIP390 display string,
+      // while describing the exact same derive-before-KeyAgg wallet.
+      return muSig2Wallet.getNunchukDescriptor('any');
     } catch {
       return undefined;
     }
@@ -88,25 +93,25 @@ const MuSig2NunchukExport: React.FC = () => {
     return (
       <View style={[styles.errorContainer, { backgroundColor: colors.elevated }]}>
         <BlueText h4 style={styles.centerText}>
-          Export unavailable
+          Nunchuk export unavailable
         </BlueText>
         <BlueSpacing10 />
         <BlueText style={[styles.centerText, { color: colors.alternativeTextColor }]}>
-          Nunchuk export requires the complete MuSig2 descriptor and its first receive address.
+          Nunchuk MuSig2 export requires a BIP87 derived-participant Vault with complete signer xpub metadata. Legacy aggregate-first BlueWallet Vaults keep their original addresses and are not rewritten for Nunchuk.
         </BlueText>
       </View>
     );
   }
 
   const descriptorDetail: Detail = {
-    title: 'Wallet descriptor',
-    description: 'Verify the complete checksummed BIP390 descriptor before importing this public wallet definition.',
+    title: 'Nunchuk wallet descriptor',
+    description: 'This is Nunchuk’s direct key-path MuSig2 descriptor. Each BIP87 account xpub is derived before MuSig2 KeySort/KeyAgg.',
     text: descriptor,
     copyLabel: 'Copy descriptor',
   };
   const bsmsDetail: Detail = {
     title: 'BSMS 1.0 backup',
-    description: 'This is the complete four-line BSMS wallet backup record, including the first receive address used for verification.',
+    description: 'This is the complete four-line Nunchuk wallet backup, including receive address #0 for independent policy verification.',
     text: bsmsRecord,
     copyLabel: 'Copy BSMS backup',
   };
@@ -115,11 +120,11 @@ const MuSig2NunchukExport: React.FC = () => {
     <SafeArea style={[styles.root, { backgroundColor: colors.elevated }]} onLayout={onLayout}>
       <ScrollView contentContainerStyle={styles.content}>
         <BlueText h4 style={styles.centerText}>
-          Nunchuk wallet export
+          Nunchuk MuSig2 export
         </BlueText>
         <BlueSpacing10 />
         <BlueText style={[styles.description, { color: colors.alternativeTextColor }]}>
-          Nunchuk's wallet-information flow uses a plain descriptor QR or a BSMS 1.0 backup file. Both exports preserve this vault's exact checksummed descriptor.
+          Export the same Value Keyset key-path wallet Nunchuk uses: descriptor QR, animated BBQr, or a four-line BSMS 1.0 backup. URv2 is intentionally not offered for Taproot MuSig2.
         </BlueText>
         <BlueSpacing20 />
 
@@ -130,7 +135,7 @@ const MuSig2NunchukExport: React.FC = () => {
 
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel="View full MuSig2 wallet descriptor"
+          accessibilityLabel="View full Nunchuk MuSig2 wallet descriptor"
           activeOpacity={0.7}
           testID="MuSig2NunchukDescriptorPreview"
           style={[styles.previewCard, { backgroundColor: colors.cardSectionBackground, borderColor: colors.cardBorderColor }]}
@@ -150,10 +155,28 @@ const MuSig2NunchukExport: React.FC = () => {
         </TouchableOpacity>
 
         <BlueSpacing20 />
+        <BlueText style={styles.sectionTitle}>BBQr</BlueText>
+        <BlueSpacing10 />
+        <BlueText style={[styles.sectionDescription, { color: colors.alternativeTextColor }]}>
+          Animated BBQr carries the same Nunchuk descriptor and is preferable when a large signer set makes one static QR too dense.
+        </BlueText>
+        <BlueSpacing10 />
+        <View style={styles.dynamicQRContainer}>
+          <DynamicQRCode
+            key={`nunchuk-bbqr-${walletID}`}
+            value={descriptor}
+            walletID={walletID}
+            protocol="BBQR"
+            hideControls={false}
+            showProtocolControls={false}
+          />
+        </View>
+
+        <BlueSpacing20 />
         <BlueText style={styles.sectionTitle}>BSMS 1.0 backup</BlueText>
         <BlueSpacing10 />
         <BlueText style={[styles.sectionDescription, { color: colors.alternativeTextColor }]}>
-          The backup contains four lines: BSMS 1.0, the descriptor, No path restrictions, and receive address #0 for verification.
+          The backup contains four lines: BSMS 1.0, Nunchuk’s descriptor, No path restrictions, and receive address #0 for verification.
         </BlueText>
         <BlueSpacing10 />
 
@@ -245,6 +268,7 @@ const styles = StyleSheet.create({
   description: { maxWidth: 560, textAlign: 'center', fontSize: 14, lineHeight: 20 },
   sectionTitle: { width: '100%', maxWidth: 620, fontSize: 16, fontWeight: '600' },
   sectionDescription: { width: '100%', maxWidth: 620, fontSize: 13, lineHeight: 19 },
+  dynamicQRContainer: { width: '100%', maxWidth: 620, minHeight: 470, alignItems: 'center', justifyContent: 'center' },
   previewCard: {
     width: '100%',
     maxWidth: 620,
