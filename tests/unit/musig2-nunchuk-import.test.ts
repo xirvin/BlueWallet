@@ -13,7 +13,8 @@ const SIGNER_1 =
   "[32b14325/87'/0'/2']xpub6CV536smmJ4Nu15RWBJiF5oagPjfVMon4dAMdZA6di2BnbVVny8o9a7ENATNS3eX8bUTHXncBXe2SCQLDRXrY8eNq4wmbCVQEw4CNjMzWHm";
 const SIGNER_2 =
   "[52c4ead8/87'/0'/2']xpub6DWaGeRp9hTVLL2ei2x3Gd6ywGVhi5wFvStKGjDLhrp5h4gbgCejZRpa3SghQhaAdohDXpsRHFReFTXAs2Q3WBXDpPCAVyZD5B7VQ8mJjD1";
-const FIRST_ADDRESS = 'bc1pjww86fjhxzryllaphjr0wlns274fanapv8la3jqjne8swrp8ddyqzx3f7a';
+const FIRST_ADDRESS = 'bc1pama7qhrgse8dsycaglnfwyfyv7kpjs552zwv5nfa4wy36qsasurskp4z3c';
+const WRONG_FIRST_ADDRESS = 'bc1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp4d7z';
 
 function makeNunchukWallet() {
   const wallet = new HDTaprootMuSig2Wallet();
@@ -69,7 +70,15 @@ describe('Nunchuk MuSig2 wallet import', () => {
     const source = makeNunchukWallet();
     const descriptor = source.getNunchukDescriptor('any');
     const bsms = createMuSig2WalletBSMSRecord(descriptor, source._getExternalAddressByIndex(0));
-    const wrong = bsms.replace(FIRST_ADDRESS, 'bc1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqp4d7z');
+    const lines = bsms.split('\n');
+    assert.strictEqual(lines.length, 4);
+    assert.strictEqual(lines[3], FIRST_ADDRESS);
+
+    // Replace the verification-address line directly instead of string-replacing
+    // a cached fixture. This keeps the negative test effective if the valid
+    // derivation vector is intentionally updated in the future.
+    const wrong = [...lines.slice(0, 3), WRONG_FIRST_ADDRESS].join('\n');
+    assert.notStrictEqual(wrong, bsms);
 
     assert.throws(() => parseNunchukMuSig2WalletInput(wrong), /first address does not match the descriptor/);
   });
