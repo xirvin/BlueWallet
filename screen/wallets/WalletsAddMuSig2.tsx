@@ -5,10 +5,15 @@ import React, { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import {
+  MUSIG2_DEFAULT_COMPATIBILITY_MODE,
+  getMuSig2CompatibilityLabel,
+} from '../../blue_modules/musig2/compatibility';
+import {
   MUSIG2_DEFAULT_SIGNERS,
   MUSIG2_WALLET_TYPE_LABEL,
   assertMuSig2SignerCount,
 } from '../../blue_modules/musig2/vault';
+import type { MuSig2DerivationMode } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { BlueSpacing20 } from '../../components/BlueSpacing';
 import Button from '../../components/Button';
 import ListItem from '../../components/ListItem';
@@ -18,30 +23,42 @@ import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
 
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'WalletsAddMuSig2'>;
 type RouteProps = RouteProp<AddWalletStackParamList, 'WalletsAddMuSig2'>;
+type MuSig2AdvancedParams = AddWalletStackParamList['MuSig2Advanced'] & {
+  derivationMode: MuSig2DerivationMode;
+  onDerivationModeSave: (mode: MuSig2DerivationMode) => void;
+};
+type MuSig2Step2Params = AddWalletStackParamList['WalletsAddMuSig2Step2'] & {
+  derivationMode: MuSig2DerivationMode;
+};
 
 const WalletsAddMuSig2: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const { walletLabel } = useRoute<RouteProps>().params;
   const [signerCount, setSignerCount] = useState(MUSIG2_DEFAULT_SIGNERS);
+  const [derivationMode, setDerivationMode] = useState<MuSig2DerivationMode>(MUSIG2_DEFAULT_COMPATIBILITY_MODE);
 
   const openSettings = useCallback(() => {
-    navigation.navigate('MuSig2Advanced', {
+    const params: MuSig2AdvancedParams = {
       signerCount,
+      derivationMode,
       onSave: count => {
         assertMuSig2SignerCount(count);
         setSignerCount(count);
       },
-    });
-  }, [navigation, signerCount]);
+      onDerivationModeSave: setDerivationMode,
+    };
+    navigation.navigate('MuSig2Advanced', params);
+  }, [derivationMode, navigation, signerCount]);
 
   const importNunchuk = useCallback(() => {
     navigation.navigate('ImportWallet', { label: '' });
   }, [navigation]);
 
   const start = useCallback(() => {
-    navigation.navigate('WalletsAddMuSig2Step2', { signerCount, walletLabel });
-  }, [navigation, signerCount, walletLabel]);
+    const params: MuSig2Step2Params = { signerCount, walletLabel, derivationMode };
+    navigation.navigate('WalletsAddMuSig2Step2', params);
+  }, [derivationMode, navigation, signerCount, walletLabel]);
 
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
@@ -58,12 +75,11 @@ const WalletsAddMuSig2: React.FC = () => {
         <Text style={[styles.text, stylesHook.text]}>
           A MuSig2 Vault combines{' '}
           <Text style={styles.bold}>{signerCount} independent Taproot keys</Text> into one compact Taproot wallet. All{' '}
-          <Text style={styles.bold}>{signerCount} of {signerCount}</Text> signers participate when spending, while the blockchain sees a
-          standard P2TR key-path signature.
+          <Text style={styles.bold}>{signerCount} of {signerCount}</Text> signers participate when spending.
         </Text>
         <BlueSpacing20 />
         <Text style={[styles.text, stylesHook.text]}>
-          New BIP87 Vaults derive every signer to the address child before MuSig2 KeySort/KeyAgg, matching BIP390 and Nunchuk Value Keyset wallets. BlueWallet coordinates BIP373 signing rounds without storing external signer private keys or secret nonces.
+          Choose the MuSig2 address model before creating the vault. Nunchuk Compatible uses participant-first BIP390 derivation. COLDCARD Compatible uses the aggregate-first BIP328 model supported by current COLDCARD EDGE MuSig2 firmware.
         </Text>
       </View>
 
@@ -72,7 +88,7 @@ const WalletsAddMuSig2: React.FC = () => {
           testID="MuSig2VaultSettings"
           onPress={openSettings}
           title="Vault settings"
-          subtitle={`${MUSIG2_WALLET_TYPE_LABEL}, ${signerCount} of ${signerCount}`}
+          subtitle={`${MUSIG2_WALLET_TYPE_LABEL} · ${getMuSig2CompatibilityLabel(derivationMode)} · ${signerCount} of ${signerCount}`}
           chevron
         />
         <ListItem
