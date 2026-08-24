@@ -32,8 +32,7 @@ import ActionSheet from '../ActionSheet';
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'MuSig2VaultKey'>;
 type RouteProps = RouteProp<AddWalletStackParamList, 'MuSig2VaultKey'>;
 type MuSig2VaultKeyRouteParams = AddWalletStackParamList['MuSig2VaultKey'] & {
-  requiredDerivationPath?: string;
-  onSave: (keyExpression: string, label?: string, derivationPath?: string) => void;
+  onSave: (keyExpression: string, label?: string) => void;
 };
 
 type SignerPreview = {
@@ -49,8 +48,8 @@ const MuSig2VaultKey: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const route = useRoute<RouteProps>();
-  const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned, requiredDerivationPath } = route.params as MuSig2VaultKeyRouteParams;
-  const saveSigner = onSave as (keyExpression: string, label?: string, derivationPath?: string) => void;
+  const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned } = route.params as MuSig2VaultKeyRouteParams;
+  const saveSigner = onSave as (keyExpression: string, label?: string) => void;
   const { addAndSaveWallet, wallets } = useStorage();
   const [input, setInput] = useState(initialValue);
   const [usePassphrase, setUsePassphrase] = useState(false);
@@ -79,13 +78,8 @@ const MuSig2VaultKey: React.FC = () => {
 
   const createMnemonicAccountWallet = useCallback(
     (mnemonic: string, signerPassphrase: string) =>
-      createMuSig2TaprootSignerWalletForVault(
-        mnemonic,
-        signerPassphrase,
-        existingVaults,
-        requiredDerivationPath,
-      ),
-    [existingVaults, requiredDerivationPath],
+      createMuSig2TaprootSignerWalletForVault(mnemonic, signerPassphrase, existingVaults),
+    [existingVaults],
   );
 
   const preview = useMemo<SignerPreview | undefined>(() => {
@@ -95,7 +89,7 @@ const MuSig2VaultKey: React.FC = () => {
       try {
         const wallet = createMnemonicAccountWallet(input, usePassphrase ? passphrase : '');
         const keyExpression = taprootWalletToMuSig2KeyExpression(wallet);
-        const normalized = normalizeMuSig2VaultSigner(keyExpression, requiredDerivationPath);
+        const normalized = normalizeMuSig2VaultSigner(keyExpression);
         return {
           kind: 'local-seed',
           keyExpression,
@@ -110,7 +104,7 @@ const MuSig2VaultKey: React.FC = () => {
     }
 
     try {
-      const normalized = normalizeMuSig2VaultSigner(input, requiredDerivationPath);
+      const normalized = normalizeMuSig2VaultSigner(input);
       assertMuSig2ParticipantAccountAvailable(normalized.participant, existingVaults);
       return {
         kind: 'public',
@@ -122,7 +116,7 @@ const MuSig2VaultKey: React.FC = () => {
     } catch {
       return undefined;
     }
-  }, [createMnemonicAccountWallet, existingVaults, input, passphrase, requiredDerivationPath, usePassphrase]);
+  }, [createMnemonicAccountWallet, existingVaults, input, passphrase, usePassphrase]);
 
   const validationError = useMemo(() => {
     if (!input.trim() || preview) return undefined;
@@ -130,14 +124,14 @@ const MuSig2VaultKey: React.FC = () => {
       if (isMuSig2TaprootSignerMnemonic(input)) {
         createMnemonicAccountWallet(input, usePassphrase ? passphrase : '');
       } else {
-        const normalized = normalizeMuSig2VaultSigner(input, requiredDerivationPath);
+        const normalized = normalizeMuSig2VaultSigner(input);
         assertMuSig2ParticipantAccountAvailable(normalized.participant, existingVaults);
       }
       return undefined;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
-  }, [createMnemonicAccountWallet, existingVaults, input, passphrase, preview, requiredDerivationPath, usePassphrase]);
+  }, [createMnemonicAccountWallet, existingVaults, input, passphrase, preview, usePassphrase]);
 
   const previewIsKnownLocalWallet = useMemo(() => {
     if (!preview) return false;
@@ -152,13 +146,13 @@ const MuSig2VaultKey: React.FC = () => {
 
   const assignPublicExpression = useCallback(
     (expression: string) => {
-      const normalized = normalizeMuSig2VaultSigner(expression, requiredDerivationPath);
+      const normalized = normalizeMuSig2VaultSigner(expression);
       assertMuSig2ParticipantAccountAvailable(normalized.participant, existingVaults);
       const signerLabel = `Signer ${normalized.participant.masterFingerprint?.toUpperCase() ?? keyIndex}`;
-      saveSigner(normalized.keyExpression, signerLabel, normalized.participant.derivationPath);
+      saveSigner(normalized.keyExpression, signerLabel);
       navigation.goBack();
     },
-    [existingVaults, keyIndex, navigation, requiredDerivationPath, saveSigner],
+    [existingVaults, keyIndex, navigation, saveSigner],
   );
 
   const useInput = useCallback(async () => {
@@ -172,7 +166,7 @@ const MuSig2VaultKey: React.FC = () => {
         let signerWalletLabel = defaultLabel;
 
         try {
-          const requestedLabel = await prompt('How would you like to name this wallet?', 'MuSig2 signer wallet', {
+          const requestedLabel = await prompt('How would you like to name this wallet?', 'MuSig2 signer account', {
             type: 'plain-text',
             defaultValue: defaultLabel,
             continueButtonText: 'Import',
@@ -185,13 +179,12 @@ const MuSig2VaultKey: React.FC = () => {
 
         wallet.setLabel(signerWalletLabel);
         const expression = taprootWalletToMuSig2KeyExpression(wallet);
-        const normalized = normalizeMuSig2VaultSigner(expression, requiredDerivationPath);
 
         if (!wallets.some(existing => existing.getID() === wallet.getID())) {
           await addAndSaveWallet(wallet);
         }
 
-        saveSigner(expression, signerWalletLabel, normalized.participant.derivationPath);
+        saveSigner(expression, signerWalletLabel);
         navigation.goBack();
         return;
       }
@@ -202,14 +195,14 @@ const MuSig2VaultKey: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, assignPublicExpression, createMnemonicAccountWallet, input, keyIndex, navigation, passphrase, preview, requiredDerivationPath, saveSigner, usePassphrase, walletLabel, wallets]);
+  }, [addAndSaveWallet, assignPublicExpression, createMnemonicAccountWallet, input, keyIndex, navigation, passphrase, preview, saveSigner, usePassphrase, walletLabel, wallets]);
 
   const createNewTaprootKey = useCallback(async () => {
     const defaultLabel = `${walletLabel} · Vault Key ${keyIndex}`;
     let signerWalletLabel = defaultLabel;
 
     try {
-      const requestedLabel = await prompt('How would you like to name this wallet?', 'MuSig2 signer wallet', {
+      const requestedLabel = await prompt('How would you like to name this wallet?', 'MuSig2 signer account', {
         type: 'plain-text',
         defaultValue: defaultLabel,
         continueButtonText: 'Create',
@@ -217,7 +210,7 @@ const MuSig2VaultKey: React.FC = () => {
       signerWalletLabel = requestedLabel.trim() || defaultLabel;
     } catch (error) {
       if (error instanceof Error && error.message === 'Cancel Pressed') return;
-      presentAlert({ title: 'Could not name MuSig2 signer wallet', message: error instanceof Error ? error.message : String(error) });
+      presentAlert({ title: 'Could not name MuSig2 signer account', message: error instanceof Error ? error.message : String(error) });
       return;
     }
 
@@ -230,10 +223,9 @@ const MuSig2VaultKey: React.FC = () => {
       const wallet = createMnemonicAccountWallet(seedWallet.getSecret(), '');
       wallet.setLabel(signerWalletLabel);
       const expression = taprootWalletToMuSig2KeyExpression(wallet);
-      const normalized = normalizeMuSig2VaultSigner(expression, requiredDerivationPath);
       await addAndSaveWallet(wallet);
 
-      saveSigner(expression, signerWalletLabel, normalized.participant.derivationPath);
+      saveSigner(expression, signerWalletLabel);
       setInput(expression);
       setUsePassphrase(false);
       setPassphrase('');
@@ -243,15 +235,15 @@ const MuSig2VaultKey: React.FC = () => {
         seed: wallet.getSecret(),
       });
     } catch (error: any) {
-      presentAlert({ title: 'Could not create MuSig2 signer wallet', message: error?.message ?? String(error) });
+      presentAlert({ title: 'Could not create MuSig2 signer account', message: error?.message ?? String(error) });
     } finally {
       setIsLoading(false);
     }
-  }, [addAndSaveWallet, createMnemonicAccountWallet, keyIndex, navigation, requiredDerivationPath, saveSigner, walletLabel]);
+  }, [addAndSaveWallet, createMnemonicAccountWallet, keyIndex, navigation, saveSigner, walletLabel]);
 
   const chooseExistingTaprootWallet = useCallback(() => {
     if (existingMuSig2SignerWallets.length === 0) {
-      presentAlert({ message: "No existing Nunchuk-style m/87'/0'/account' MuSig2 signer wallets are available." });
+      presentAlert({ message: "No existing Nunchuk-style m/87'/0'/account' MuSig2 signer accounts are available." });
       return;
     }
 
@@ -263,9 +255,7 @@ const MuSig2VaultKey: React.FC = () => {
     ActionSheet.showActionSheetWithOptions(
       {
         title: 'Use existing MuSig2 signer',
-        message: requiredDerivationPath
-          ? `This vault uses ${requiredDerivationPath}. BlueWallet will derive that hardened account from the selected local master seed when needed.`
-          : 'If this master seed already participates in another MuSig2 vault, BlueWallet will derive its next unused BIP87 account for this new vault.',
+        message: "BlueWallet tracks BIP87 use per master signer. If the selected master seed already participates in another MuSig2 vault, its next unused m/87'/0'/account' key is derived automatically.",
         options,
         cancelButtonIndex,
       },
@@ -276,11 +266,7 @@ const MuSig2VaultKey: React.FC = () => {
 
         void (async () => {
           try {
-            const accountWallet = deriveMuSig2TaprootSignerAccountWalletForVault(
-              sourceWallet,
-              existingVaults,
-              requiredDerivationPath,
-            );
+            const accountWallet = deriveMuSig2TaprootSignerAccountWalletForVault(sourceWallet, existingVaults);
             const isSiblingAccount = accountWallet.getID() !== sourceWallet.getID();
             if (isSiblingAccount) {
               accountWallet.setLabel(`${walletLabel} · Vault Key ${keyIndex}`);
@@ -290,16 +276,15 @@ const MuSig2VaultKey: React.FC = () => {
             }
 
             const expression = taprootWalletToMuSig2KeyExpression(accountWallet);
-            const normalized = normalizeMuSig2VaultSigner(expression, requiredDerivationPath);
-            saveSigner(expression, accountWallet.getLabel(), normalized.participant.derivationPath);
+            saveSigner(expression, accountWallet.getLabel());
             navigation.goBack();
           } catch (error: any) {
-            presentAlert({ title: 'MuSig2 signer wallet', message: error?.message ?? String(error) });
+            presentAlert({ title: 'MuSig2 signer account', message: error?.message ?? String(error) });
           }
         })();
       },
     );
-  }, [addAndSaveWallet, existingMuSig2SignerWallets, existingVaults, keyIndex, navigation, requiredDerivationPath, saveSigner, walletLabel, wallets]);
+  }, [addAndSaveWallet, existingMuSig2SignerWallets, existingVaults, keyIndex, navigation, saveSigner, walletLabel, wallets]);
 
   const handleImportedText = useCallback((text: string) => {
     setInput(text);
@@ -321,23 +306,20 @@ const MuSig2VaultKey: React.FC = () => {
     >
       <BlueText bold style={styles.title}>Vault Key {keyIndex}</BlueText>
       <BlueText style={styles.description}>
-        A BIP87 account belongs to the MuSig2 vault, not to the signer number. Reusing the same local master seed in another vault derives a fresh hardened m/87'/0'/account' xpub instead of reusing an account key.
+        BIP87 accounts are allocated per master signer. Reusing the same seed or hardware signer in another MuSig2 vault derives its next unused hardened m/87'/0'/account' xpub instead of reusing an account key.
       </BlueText>
-      {requiredDerivationPath && (
-        <BlueText bold style={styles.accountPath}>Vault account: {requiredDerivationPath}</BlueText>
-      )}
 
-      <BlueText bold style={styles.sectionTitle}>Create or use a local signer wallet</BlueText>
+      <BlueText bold style={styles.sectionTitle}>Create or use a local signer account</BlueText>
       <BlueText style={styles.sectionDescription}>
-        The MuSig2 vault stores only the signer's public account information. The seed stays in the dedicated local signer wallet.
+        The MuSig2 vault stores only the public account key. The underlying seed stays in the local signer account.
       </BlueText>
-      <Button testID="MuSig2CreateTaprootKey" title="Create new MuSig2 signer wallet" onPress={createNewTaprootKey} disabled={isLoading} />
+      <Button testID="MuSig2CreateTaprootKey" title="Create new MuSig2 signer" onPress={createNewTaprootKey} disabled={isLoading} />
       {existingMuSig2SignerWallets.length > 0 && (
         <>
           <BlueSpacing10 />
           <Button
             testID="MuSig2UseExistingTaprootKey"
-            title="Use existing MuSig2 signer"
+            title="Reuse existing master signer"
             onPress={chooseExistingTaprootWallet}
             disabled={isLoading}
           />
@@ -347,7 +329,7 @@ const MuSig2VaultKey: React.FC = () => {
       <BlueSpacing20 />
       <BlueText bold style={styles.sectionTitle}>Enter signer wallet information</BlueText>
       <BlueText style={styles.sectionDescription}>
-        Paste or type seed words, a complete BSMS 1.0 export, a Taproot descriptor, [fingerprint/path]xpub, or compatible JSON. The first Vault Key establishes the BIP87 account for this vault; every remaining Vault Key must use the same account origin.
+        Paste or type seed words, a complete BSMS 1.0 export, a Taproot descriptor, [fingerprint/path]xpub, or compatible JSON. Each signer can carry its own valid Nunchuk m/87'/0'/account' index.
       </BlueText>
 
       <AddressInputScanButton
@@ -411,7 +393,7 @@ const MuSig2VaultKey: React.FC = () => {
           </BlueText>
           <BlueText>Type: Taproot MuSig2 signer</BlueText>
           <BlueText>Fingerprint: {preview.fingerprint}</BlueText>
-          <BlueText>Vault account origin: {preview.derivationPath}</BlueText>
+          <BlueText>BIP87 account origin: {preview.derivationPath}</BlueText>
           {preview.receiveAddress && <BlueText selectable>Signer account first receive: {preview.receiveAddress}</BlueText>}
           <BlueText selectable numberOfLines={3}>XPUB: {preview.xpub}</BlueText>
         </View>
@@ -437,8 +419,7 @@ const MuSig2VaultKey: React.FC = () => {
 const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 40 },
   title: { fontSize: 22, marginBottom: 8 },
-  description: { lineHeight: 20, marginBottom: 12 },
-  accountPath: { marginBottom: 24 },
+  description: { lineHeight: 20, marginBottom: 24 },
   sectionTitle: { fontSize: 17, marginBottom: 6 },
   sectionDescription: { lineHeight: 20, marginBottom: 14 },
   inputContainer: { minHeight: 300, borderWidth: 1, borderRadius: 8, padding: 12 },
