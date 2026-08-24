@@ -105,6 +105,16 @@ function findAggregateDerivation(psbt: Psbt, inputIndex: number, rootAggregatePu
   return matches[0].path;
 }
 
+/**
+ * Builds the MuSig2 tweak list for either supported address model:
+ *
+ * - BIP390/Nunchuk: the BIP373 participant set already contains the exact
+ *   /change/index child keys and its aggregate is the Taproot internal key.
+ *   Only the BIP341 TapTweak remains.
+ * - Historical BlueWallet BIP328: the participant set is the account/root key
+ *   set, so reproduce the synthetic aggregate child derivation first and then
+ *   apply the BIP341 TapTweak.
+ */
 function deriveKeyPathTweaks(
   psbt: Psbt,
   inputIndex: number,
@@ -116,24 +126,30 @@ function deriveKeyPathTweaks(
 
   let context = keyAgg(participantPublicKeys);
   if (!bytesEqual(getPlainPublicKey(context), rootAggregatePublicKey)) {
-    throw new Error(`MuSig2 root aggregate key does not match participant set on input ${inputIndex}`);
+    throw new Error(`MuSig2 aggregate key does not match participant set on input ${inputIndex}`);
   }
 
-  let chainCode = new Uint8Array(BIP328_CHAIN_CODE);
   const tweaks: MuSig2Tweak[] = [];
-  const path = findAggregateDerivation(psbt, inputIndex, rootAggregatePublicKey);
+  const aggregateIsTaprootInternalKey = bytesEqual(serializePlainPublicKey(context.point).slice(1), input.tapInternalKey);
 
-  for (const index of parseUnhardenedPath(path)) {
-    const digest = hmac(sha512, chainCode, concatBytes(serializePlainPublicKey(context.point), uint32be(index)));
-    const tweak = new Uint8Array(digest.slice(0, 32));
-    chainCode = new Uint8Array(digest.slice(32, 64));
-    const item: MuSig2Tweak = { tweak, isXOnly: false };
-    context = applyTweak(context, item.tweak, item.isXOnly);
-    tweaks.push(item);
-  }
+  if (!aggregateIsTaprootInternalKey) {
+    // Historical BIP328 aggregate-first wallet. Recreate the aggregate child
+    // exactly from the aggregate derivation PSBT record.
+    let chainCode = new Uint8Array(BIP328_CHAIN_CODE);
+    const path = findAggregateDerivation(psbt, inputIndex, rootAggregatePublicKey);
 
-  if (!bytesEqual(serializePlainPublicKey(context.point).slice(1), input.tapInternalKey)) {
-    throw new Error(`BIP328-derived MuSig2 internal key does not match input ${inputIndex}`);
+    for (const index of parseUnhardenedPath(path)) {
+      const digest = hmac(sha512, chainCode, concatBytes(serializePlainPublicKey(context.point), uint32be(index)));
+      const tweak = new Uint8Array(digest.slice(0, 32));
+      chainCode = new Uint8Array(digest.slice(32, 64));
+      const item: MuSig2Tweak = { tweak, isXOnly: false };
+      context = applyTweak(context, item.tweak, item.isXOnly);
+      tweaks.push(item);
+    }
+
+    if (!bytesEqual(serializePlainPublicKey(context.point).slice(1), input.tapInternalKey)) {
+      throw new Error(`BIP328-derived MuSig2 internal key does not match input ${inputIndex}`);
+    }
   }
 
   if (input.tapMerkleRoot && input.tapMerkleRoot.length !== 32) {
