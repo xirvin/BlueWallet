@@ -17,6 +17,7 @@ export const MUSIG2_MAX_SIGNERS = 7;
 export const MUSIG2_DEFAULT_SIGNERS = 2;
 export const MUSIG2_DEFAULT_ACCOUNT_INDEX = 0;
 export const MUSIG2_MAX_ACCOUNT_INDEX = 0x7fffffff;
+export const MUSIG2_NUNCHUK_RESERVED_ESCROW_ACCOUNT_INDEX = 9999;
 export const MUSIG2_LEGACY_SIGNER_DERIVATION = "m/86'/0'/0'";
 export const MUSIG2_WALLET_TYPE_LABEL = 'Taproot (P2TR-MuSig2)';
 
@@ -29,6 +30,9 @@ export type MuSig2SignerDerivationInfo = {
 export function getMuSig2SignerDerivationPath(accountIndex = MUSIG2_DEFAULT_ACCOUNT_INDEX): string {
   if (!Number.isInteger(accountIndex) || accountIndex < 0 || accountIndex > MUSIG2_MAX_ACCOUNT_INDEX) {
     throw new Error(`MuSig2 account index must be between 0 and ${MUSIG2_MAX_ACCOUNT_INDEX}`);
+  }
+  if (accountIndex === MUSIG2_NUNCHUK_RESERVED_ESCROW_ACCOUNT_INDEX) {
+    throw new Error(`MuSig2 account ${MUSIG2_NUNCHUK_RESERVED_ESCROW_ACCOUNT_INDEX} is reserved by Nunchuk for escrow wallets`);
   }
   return `m/87'/0'/${accountIndex}'`;
 }
@@ -138,6 +142,7 @@ export function getNextUnusedMuSig2AccountIndexForFingerprint(
 ): number {
   const used = new Set(getUsedMuSig2AccountIndexesForFingerprint(masterFingerprint, vaults));
   for (let accountIndex = 0; accountIndex <= MUSIG2_MAX_ACCOUNT_INDEX; accountIndex++) {
+    if (accountIndex === MUSIG2_NUNCHUK_RESERVED_ESCROW_ACCOUNT_INDEX) continue;
     if (!used.has(accountIndex)) return accountIndex;
   }
   throw new Error('No unused MuSig2 BIP87 account indexes remain for this signer');
@@ -148,6 +153,7 @@ export function assertMuSig2AccountAvailableForFingerprint(
   accountIndex: number,
   vaults: HDTaprootMuSig2Wallet[],
 ): void {
+  getMuSig2SignerDerivationPath(accountIndex);
   if (isMuSig2AccountIndexUsedForFingerprint(masterFingerprint, accountIndex, vaults)) {
     throw new Error(
       `MuSig2 account ${accountIndex} is already used by signer ${normalizeMasterFingerprint(masterFingerprint).toUpperCase()} in another vault`,
