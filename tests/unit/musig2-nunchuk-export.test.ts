@@ -12,7 +12,13 @@ const NUNCHUK_ACCOUNT_2_SIGNER_1 =
   "[32b14325/87'/0'/2']xpub6CV536smmJ4Nu15RWBJiF5oagPjfVMon4dAMdZA6di2BnbVVny8o9a7ENATNS3eX8bUTHXncBXe2SCQLDRXrY8eNq4wmbCVQEw4CNjMzWHm";
 const NUNCHUK_ACCOUNT_2_SIGNER_2 =
   "[52c4ead8/87'/0'/2']xpub6DWaGeRp9hTVLL2ei2x3Gd6ywGVhi5wFvStKGjDLhrp5h4gbgCejZRpa3SghQhaAdohDXpsRHFReFTXAs2Q3WBXDpPCAVyZD5B7VQ8mJjD1";
-const NUNCHUK_ACCOUNT_2_FIRST_ADDRESS = 'bc1pjww86fjhxzryllaphjr0wlns274fanapv8la3jqjne8swrp8ddyqzx3f7a';
+const NUNCHUK_ACCOUNT_2_RECEIVE_0_CHILD_KEYS = [
+  '0323ffe829105e6e814c01345ff5c40a55e0f3d867d807af036489cbc0fced1f8c',
+  '03bc2490293321533d06ab8e7c4c925d010e3aeb26dc5ddfc2e1ee8fa26c9fbe94',
+];
+const NUNCHUK_ACCOUNT_2_RECEIVE_0_AGGREGATE_KEY =
+  '026be115fa1e51e88ea0206fba036e7d08d34d15584cc0ba66503cfa7aba437bd2';
+const NUNCHUK_ACCOUNT_2_FIRST_ADDRESS = 'bc1pama7qhrgse8dsycaglnfwyfyv7kpjs552zwv5nfa4wy36qsasurskp4z3c';
 
 function createAccount2Vault(): HDTaprootMuSig2Wallet {
   const wallet = new HDTaprootMuSig2Wallet();
@@ -25,11 +31,15 @@ function createAccount2Vault(): HDTaprootMuSig2Wallet {
 describe('MuSig2 Nunchuk wallet export', () => {
   it('derives participant /0/0 keys before KeySort/KeyAgg and locks the first Nunchuk address', () => {
     const wallet = createAccount2Vault();
+    const childKeys = wallet.getAddressParticipantPublicKeys(0, 0).map(key => Buffer.from(key).toString('hex'));
+    const aggregateKey = Buffer.from(wallet.getAddressAggregatePublicKey(0, 0)).toString('hex');
 
     assert.strictEqual(wallet.getDerivationMode(), 'bip390-derived-participants');
+    assert.deepStrictEqual(childKeys, NUNCHUK_ACCOUNT_2_RECEIVE_0_CHILD_KEYS);
+    assert.strictEqual(aggregateKey, NUNCHUK_ACCOUNT_2_RECEIVE_0_AGGREGATE_KEY);
     assert.strictEqual(wallet._getExternalAddressByIndex(0), NUNCHUK_ACCOUNT_2_FIRST_ADDRESS);
     assert.notDeepStrictEqual(
-      wallet.getAddressParticipantPublicKeys(0, 0).map(key => Buffer.from(key).toString('hex')),
+      childKeys,
       wallet.getParticipants().map(participant => participant.publicKeyHex),
     );
   });
