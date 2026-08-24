@@ -1,11 +1,17 @@
 import assert from 'assert';
+import BIP32Factory from 'bip32';
 import * as bitcoin from 'bitcoinjs-lib';
 
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 import type { MuSig2CoordinatorExport } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { descriptorChecksum } from '../../class/wallet-descriptor';
+import { keySort } from '../../blue_modules/musig2/key-aggregation';
 import { PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS, PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS } from '../../blue_modules/musig2/psbt';
+import ecc from '../../blue_modules/noble_ecc';
 import { uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
+
+const bip32 = BIP32Factory(ecc);
+bitcoin.initEccLib(ecc);
 
 const SIGNER_1 = '02F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9';
 const SIGNER_2 = '03DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659';
@@ -21,20 +27,15 @@ const EXPECTED_RECEIVE_ADDRESSES = [
   'bc1pck6wcljyjy4esj2h4qgn0spvw0ceudgravsfkmhtwpndvm3m4vuste3qwc',
 ];
 
-// BIP390 v0.2.0 public vectors. Origins below are metadata chosen to match
-// the serialized xpub depth/child numbers; the xpubs and derived keys are the
-// normative vector data.
+// BIP390 public extended-key fixtures. The origins match the serialized xpub
+// depth/child numbers and let the test independently derive each child xpub
+// before comparing it with the wallet's BIP390 participant set.
 const BIP390_XPUB_1 =
   'xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL';
 const BIP390_XPUB_2 =
   'xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y';
 const BIP390_KEY_EXPRESSION_1 = `[deadbeef/0h/0h/0h/2147483646h]${BIP390_XPUB_1}`;
 const BIP390_KEY_EXPRESSION_2 = `[cafebabe/0h]${BIP390_XPUB_2}`;
-const BIP390_EXPECTED_BRANCH_0_XONLY = [
-  '9508c08832f3bb9d5e8baf8cb5cfa3669902e2f2da19acea63ff47b93faa9bfc',
-  '5ca1102663025a83dd9b5dbc214762c5a6309af00d48167d2d6483808525a298',
-  '7dbed1b89c338df6a1ae137f133a19cae6e03d481196ee6f1a5c7d1aeb56b166',
-];
 
 function createHardwareVectorWallet(): HDTaprootMuSig2Wallet {
   const wallet = new HDTaprootMuSig2Wallet();
@@ -44,11 +45,12 @@ function createHardwareVectorWallet(): HDTaprootMuSig2Wallet {
 }
 
 describe('MuSig2 minimal coordinator wallet UI model', () => {
-  it('locks the verified 2-of-2 BIP328 root, fingerprint, xpub and receive-address derivation', () => {
+  it('keeps the verified bare-public-key BIP328 root and receive-address derivation as legacy behavior', () => {
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setLabel('MuSig2 Vault');
     wallet.setParticipantPublicKeys([SIGNER_1, SIGNER_2]);
 
+    assert.strictEqual(wallet.getDerivationMode(), 'legacy-bip328');
     assert.strictEqual(HDTaprootMuSig2Wallet.derivationPath, 'm');
     assert.strictEqual(uint8ArrayToHex(wallet.getAggregatePublicKey()), EXPECTED_AGGREGATE);
     assert.strictEqual(wallet.getMuSig2RootFingerprint(), EXPECTED_ROOT_FINGERPRINT);
@@ -65,30 +67,42 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
     assert.strictEqual(descriptorChecksum('raw(deadbeef)'), '89f8spxm');
   });
 
-  it('parses hardware key expressions, sorts participants, and matches BIP390 aggregate derivation vectors', () => {
+  it('derives every extended-key participant before KeySort/KeyAgg and exports BIP390 multipath syntax', () => {
     const wallet = createHardwareVectorWallet();
 
+    assert.strictEqual(wallet.getDerivationMode(), 'bip390-derived-participants');
     assert.strictEqual(wallet.hasCompleteExtendedParticipantMetadata(), true);
     assert.strictEqual(wallet.allowSend(), true);
+    assert.strictEqual(wallet.allowXpub(), false);
     assert.deepStrictEqual(
       wallet.getParticipants().map(participant => participant.masterFingerprint),
       ['cafebabe', 'deadbeef'],
     );
+
+    const independentlyDerived = keySort([
+      new Uint8Array(bip32.fromBase58(BIP390_XPUB_1).derive(0).derive(0).publicKey),
+      new Uint8Array(bip32.fromBase58(BIP390_XPUB_2).derive(0).derive(0).publicKey),
+    ]);
     assert.deepStrictEqual(
-      BIP390_EXPECTED_BRANCH_0_XONLY.map((_, index) => uint8ArrayToHex(wallet._getNodePubkeyByIndex(0, index))),
-      BIP390_EXPECTED_BRANCH_0_XONLY,
+      wallet.getAddressParticipantPublicKeys(0, 0).map(uint8ArrayToHex),
+      independentlyDerived.map(uint8ArrayToHex),
+    );
+    assert.notStrictEqual(
+      uint8ArrayToHex(wallet.getAddressAggregatePublicKey(0, 0)),
+      uint8ArrayToHex(wallet.getAggregatePublicKey()),
     );
 
     const descriptor = wallet.getBIP390Descriptor();
     const [body, checksum] = descriptor.split('#');
     assert.ok(body.startsWith('tr(musig('));
-    assert.ok(body.includes(BIP390_XPUB_1));
-    assert.ok(body.includes(BIP390_XPUB_2));
-    assert.ok(body.endsWith(')/<0;1>/*)'));
+    assert.ok(body.includes(`${BIP390_XPUB_1}/<0;1>/*`));
+    assert.ok(body.includes(`${BIP390_XPUB_2}/<0;1>/*`));
+    assert.ok(body.endsWith('))'));
+    assert.ok(!body.includes(')/<0;1>/*)'));
     assert.strictEqual(checksum, descriptorChecksum(body));
   });
 
-  it('builds an unsigned P2TR BIP373 Round 1 PSBT for hardware signers', () => {
+  it('builds a BIP373 Round 1 PSBT with derived participant child keys and paths', () => {
     const wallet = createHardwareVectorWallet();
     const receiveAddress = wallet._getExternalAddressByIndex(0);
     const changeAddress = wallet._getInternalAddressByIndex(0);
@@ -118,21 +132,27 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
     assert.strictEqual(uint8ArrayToHex(input.witnessUtxo!.script), uint8ArrayToHex(expectedP2tr.output!));
     assert.strictEqual(uint8ArrayToHex(input.tapInternalKey!), uint8ArrayToHex(internalKey));
 
-    const aggregateDerivation = input.tapBip32Derivation!.find(item => item.path === 'm/0/0');
-    assert.ok(aggregateDerivation);
-    assert.strictEqual(uint8ArrayToHex(aggregateDerivation!.masterFingerprint).toUpperCase(), wallet.getMuSig2RootFingerprint());
-    assert.strictEqual(uint8ArrayToHex(aggregateDerivation!.pubkey), uint8ArrayToHex(internalKey));
-
-    const participantDerivations = input.tapBip32Derivation!.filter(item => item.path !== 'm/0/0');
+    assert.strictEqual(input.tapBip32Derivation?.some(item => item.path === 'm/0/0'), false);
     assert.deepStrictEqual(
-      participantDerivations.map(item => uint8ArrayToHex(item.masterFingerprint)),
-      ['cafebabe', 'deadbeef'],
+      input.tapBip32Derivation?.map(item => item.path).sort(),
+      ["m/0'/0'/0'/2147483646'/0/0", "m/0'/0/0"].sort(),
+    );
+    assert.deepStrictEqual(
+      input.tapBip32Derivation?.map(item => uint8ArrayToHex(item.masterFingerprint)).sort(),
+      ['cafebabe', 'deadbeef'].sort(),
     );
 
     const participantField = input.unknownKeyVals?.find(item => item.key[0] === PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS);
     assert.ok(participantField);
-    assert.strictEqual(uint8ArrayToHex(participantField!.key.slice(1)), uint8ArrayToHex(wallet.getAggregatePublicKey()));
+    assert.strictEqual(
+      uint8ArrayToHex(participantField!.key.slice(1)),
+      uint8ArrayToHex(wallet.getAddressAggregatePublicKey(0, 0)),
+    );
     assert.strictEqual(participantField!.value.length, 66);
+    assert.strictEqual(
+      uint8ArrayToHex(participantField!.value),
+      wallet.getAddressParticipantPublicKeys(0, 0).map(uint8ArrayToHex).join(''),
+    );
 
     const changeOutputIndex = result.outputs.findIndex(output => output.address === changeAddress);
     assert.ok(changeOutputIndex >= 0);
@@ -140,9 +160,13 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
       item => item.key[0] === PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS,
     );
     assert.ok(changeParticipantField);
+    assert.strictEqual(
+      uint8ArrayToHex(changeParticipantField!.key.slice(1)),
+      uint8ArrayToHex(wallet.getAddressAggregatePublicKey(1, 0)),
+    );
   });
 
-  it('exports a versioned public coordinator backup suitable for QR transport', () => {
+  it('exports a versioned legacy public coordinator backup suitable for QR transport', () => {
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setLabel('MuSig2 Vault');
     wallet.setParticipantPublicKeys([SIGNER_1, SIGNER_2]);
@@ -156,6 +180,7 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
     assert.strictEqual(payload.root, 'm');
     assert.strictEqual(payload.rootFingerprint, EXPECTED_ROOT_FINGERPRINT);
     assert.strictEqual(payload.aggregatePublicKey, EXPECTED_AGGREGATE);
+    assert.strictEqual(payload.derivationMode, 'legacy-bip328');
     assert.strictEqual(payload.xpub, EXPECTED_XPUB);
     assert.strictEqual(payload.descriptor, undefined);
     assert.deepStrictEqual(payload.participants, [
@@ -165,14 +190,17 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
     assert.ok(!wallet.getCoordinatorExport().includes('secret'));
   });
 
-  it('includes the checksummed BIP390 descriptor in a hardware-ready coordinator backup', () => {
+  it('exports derived-participant mode and descriptor without pretending the synthetic root xpub is an address xpub', () => {
     const wallet = createHardwareVectorWallet();
     const payload = JSON.parse(wallet.getCoordinatorExport()) as MuSig2CoordinatorExport;
+
+    assert.strictEqual(payload.derivationMode, 'bip390-derived-participants');
+    assert.strictEqual(payload.xpub, undefined);
     assert.strictEqual(payload.descriptor, wallet.getBIP390Descriptor());
     assert.strictEqual(payload.participants.every(participant => Boolean(participant.xpub)), true);
   });
 
-  it('creates and restores a public-key-only 2-of-2 coordinator wallet', () => {
+  it('creates and restores a public-key-only 2-of-2 legacy coordinator wallet', () => {
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setLabel('MuSig2 Vault');
     wallet.setParticipantPublicKeys([SIGNER_1, SIGNER_2]);
@@ -190,6 +218,7 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
     ]);
 
     const restored = HDTaprootMuSig2Wallet.fromJson(JSON.stringify(wallet));
+    assert.strictEqual(restored.getDerivationMode(), 'legacy-bip328');
     assert.strictEqual(restored.getID(), id);
     assert.strictEqual(restored.getXpub(), EXPECTED_XPUB);
     assert.strictEqual(restored.getMuSig2RootFingerprint(), EXPECTED_ROOT_FINGERPRINT);
@@ -199,8 +228,19 @@ describe('MuSig2 minimal coordinator wallet UI model', () => {
     assert.deepStrictEqual(restored.getParticipants(), wallet.getParticipants());
   });
 
+  it('restores a derived-participant wallet without changing its address model', () => {
+    const wallet = createHardwareVectorWallet();
+    const address = wallet._getExternalAddressByIndex(0);
+    const restored = HDTaprootMuSig2Wallet.fromJson(JSON.stringify(wallet));
+
+    assert.strictEqual(restored.getDerivationMode(), 'bip390-derived-participants');
+    assert.strictEqual(restored._getExternalAddressByIndex(0), address);
+    assert.strictEqual(restored.getBIP390Descriptor(), wallet.getBIP390Descriptor());
+  });
+
   it('keeps signer fingerprints separate from the synthetic MuSig2 root fingerprint', () => {
     const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setDerivationMode('legacy-bip328');
     wallet.setParticipants([
       { publicKeyHex: SIGNER_1, masterFingerprint: 'A1B2C3D4', derivationPath: "m/86'/0'/0'" },
       { publicKeyHex: SIGNER_2, masterFingerprint: '01020304', derivationPath: "m/86'/0'/1'" },
