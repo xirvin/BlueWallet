@@ -31,6 +31,10 @@ import ActionSheet from '../ActionSheet';
 
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'MuSig2VaultKey'>;
 type RouteProps = RouteProp<AddWalletStackParamList, 'MuSig2VaultKey'>;
+type MuSig2VaultKeyRouteParams = AddWalletStackParamList['MuSig2VaultKey'] & {
+  requiredDerivationPath?: string;
+  onSave: (keyExpression: string, label?: string, derivationPath?: string) => void;
+};
 
 type SignerPreview = {
   kind: 'local-seed' | 'public';
@@ -45,7 +49,7 @@ const MuSig2VaultKey: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
   const route = useRoute<RouteProps>();
-  const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned, requiredDerivationPath } = route.params;
+  const { keyIndex, walletLabel, initialValue = '', onSave, onBarScanned, requiredDerivationPath } = route.params as MuSig2VaultKeyRouteParams;
   const saveSigner = onSave as (keyExpression: string, label?: string, derivationPath?: string) => void;
   const { addAndSaveWallet, wallets } = useStorage();
   const [input, setInput] = useState(initialValue);
