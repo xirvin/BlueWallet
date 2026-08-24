@@ -95,6 +95,12 @@ export function getMuSig2LocalSignerMasterFingerprint(wallet: HDTaprootWallet): 
   return uint8ArrayToHex(root.fingerprint).toLowerCase();
 }
 
+/**
+ * BIP87 account allocation is scoped to one master signer. Two cosigners in
+ * the same vault may legitimately use different account numbers when their
+ * prior wallet histories differ, exactly as Nunchuk tracks indexes per master
+ * signer database.
+ */
 export function getUsedMuSig2AccountIndexesForFingerprint(
   masterFingerprint: string,
   vaults: HDTaprootMuSig2Wallet[],
@@ -189,31 +195,32 @@ export function normalizeMuSig2VaultSigner(
 export function validateMuSig2VaultSigners(
   inputs: string[],
   expectedCount = inputs.length,
-  requiredDerivationPath?: string,
 ): string[] {
   assertMuSig2SignerCount(expectedCount);
   if (inputs.length !== expectedCount) {
     throw new Error(`MuSig2 Vault requires exactly ${expectedCount} signer keys`);
   }
 
-  const normalized = inputs.map(input => normalizeMuSig2VaultSigner(input, requiredDerivationPath));
+  const normalized = inputs.map(input => normalizeMuSig2VaultSigner(input));
   const publicKeys = new Set(normalized.map(item => item.participant.publicKeyHex));
   if (publicKeys.size !== normalized.length) {
     throw new Error('MuSig2 Vault signer keys must all be distinct');
   }
 
-  const derivationPaths = new Set(normalized.map(item => item.participant.derivationPath));
-  if (derivationPaths.size !== 1) {
-    throw new Error('All MuSig2 Vault signers must use the same signer account origin');
+  const schemes = new Set(
+    normalized.map(item => parseMuSig2SignerDerivationPath(item.participant.derivationPath).scheme),
+  );
+  if (schemes.size !== 1) {
+    throw new Error('MuSig2 Vault cannot mix Nunchuk BIP87 signer accounts with legacy BlueWallet BIP86 signer accounts');
   }
 
   return normalized.map(item => item.keyExpression);
 }
 
 /**
- * Builds a dedicated local Taproot signer wallet at the Nunchuk MuSig2 account
- * origin by default. A recorded legacy derivation can be supplied when an
- * existing BlueWallet MuSig2 signer is being restored.
+ * Builds a dedicated local Taproot signer account view. New MuSig2 vault
+ * creation should normally use createMuSig2TaprootSignerWalletForVault so the
+ * account is allocated relative to this master signer's own prior vault use.
  */
 export function createMuSig2TaprootSignerWallet(
   mnemonic: string,
@@ -232,27 +239,26 @@ export function createMuSig2TaprootSignerWallet(
 }
 
 /**
- * Creates the account view for a new vault. If this master signer has already
- * been used in stored BIP87 MuSig2 vaults, the next unused hardened account is
- * selected. When another participant has already fixed the vault account,
- * requiredDerivationPath is enforced instead.
+ * Creates the BIP87 account view for a signer joining a new vault. The next
+ * unused hardened account is chosen independently for this master fingerprint.
+ * An explicit path is only for importing/reconstructing a known account.
  */
 export function createMuSig2TaprootSignerWalletForVault(
   mnemonic: string,
   passphrase: string,
   vaults: HDTaprootMuSig2Wallet[],
-  requiredDerivationPath?: string,
+  explicitDerivationPath?: string,
 ): HDTaprootWallet {
   const probe = createMuSig2TaprootSignerWallet(mnemonic, passphrase);
   const fingerprint = getMuSig2LocalSignerMasterFingerprint(probe);
 
   let targetPath: string;
-  if (requiredDerivationPath) {
-    const required = parseMuSig2SignerDerivationPath(requiredDerivationPath);
-    if (required.scheme === 'nunchuk-bip87') {
-      assertMuSig2AccountAvailableForFingerprint(fingerprint, required.accountIndex, vaults);
+  if (explicitDerivationPath) {
+    const explicit = parseMuSig2SignerDerivationPath(explicitDerivationPath);
+    if (explicit.scheme === 'nunchuk-bip87') {
+      assertMuSig2AccountAvailableForFingerprint(fingerprint, explicit.accountIndex, vaults);
     }
-    targetPath = required.path;
+    targetPath = explicit.path;
   } else {
     targetPath = getMuSig2SignerDerivationPath(getNextUnusedMuSig2AccountIndexForFingerprint(fingerprint, vaults));
   }
@@ -261,24 +267,24 @@ export function createMuSig2TaprootSignerWalletForVault(
 }
 
 /**
- * Reuses the same local master seed in another MuSig2 vault by deriving a
- * sibling BIP87 account. The source account wallet is returned unchanged only
- * when its account has not yet been committed to another stored vault.
+ * Reuses the same local master seed in another MuSig2 vault by deriving that
+ * signer's next unused BIP87 account. Account allocation is deliberately per
+ * master fingerprint rather than global to the vault.
  */
 export function deriveMuSig2TaprootSignerAccountWalletForVault(
   sourceWallet: HDTaprootWallet,
   vaults: HDTaprootMuSig2Wallet[],
-  requiredDerivationPath?: string,
+  explicitDerivationPath?: string,
 ): HDTaprootWallet {
   const fingerprint = getMuSig2LocalSignerMasterFingerprint(sourceWallet);
   let targetPath: string;
 
-  if (requiredDerivationPath) {
-    const required = parseMuSig2SignerDerivationPath(requiredDerivationPath);
-    if (required.scheme === 'nunchuk-bip87') {
-      assertMuSig2AccountAvailableForFingerprint(fingerprint, required.accountIndex, vaults);
+  if (explicitDerivationPath) {
+    const explicit = parseMuSig2SignerDerivationPath(explicitDerivationPath);
+    if (explicit.scheme === 'nunchuk-bip87') {
+      assertMuSig2AccountAvailableForFingerprint(fingerprint, explicit.accountIndex, vaults);
     }
-    targetPath = required.path;
+    targetPath = explicit.path;
   } else {
     let current: MuSig2SignerDerivationInfo | undefined;
     try {
