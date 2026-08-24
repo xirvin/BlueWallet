@@ -49,6 +49,7 @@ describe('MuSig2 compatibility modes', () => {
     assert.ok(descriptor.endsWith(')/<0;1>/*)'));
     assert.ok(!descriptor.includes(`${SIGNER_1_DESCRIPTOR}/<0;1>/*`));
     assert.ok(!descriptor.includes(`${SIGNER_2_DESCRIPTOR}/<0;1>/*`));
+    assert.throws(() => coldcard.getNunchukDescriptor(), /only available for BIP390 derived-participant/);
 
     const nunchukAddress = nunchuk._getExternalAddressByIndex(0);
     const coldcardAddress = coldcard._getExternalAddressByIndex(0);
