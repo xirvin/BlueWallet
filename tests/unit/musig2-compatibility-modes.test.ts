@@ -10,6 +10,8 @@ const SIGNER_2 =
   "[52c4ead8/87'/0'/2']xpub6DWaGeRp9hTVLL2ei2x3Gd6ywGVhi5wFvStKGjDLhrp5h4gbgCejZRpa3SghQhaAdohDXpsRHFReFTXAs2Q3WBXDpPCAVyZD5B7VQ8mJjD1";
 const SIGNER_1_DESCRIPTOR = SIGNER_1.replace(/'/g, 'h');
 const SIGNER_2_DESCRIPTOR = SIGNER_2.replace(/'/g, 'h');
+const NUNCHUK_RECEIVE_0 = 'bc1pama7qhrgse8dsycaglnfwyfyv7kpjs552zwv5nfa4wy36qsasurskp4z3c';
+const COLDCARD_RECEIVE_0 = 'bc1p5kvuyhsuwwt0hxfs5f8vj5nf442jrwusrt7knjhngnvlvcme07jqafcsal';
 
 function createNunchukWallet(): HDTaprootMuSig2Wallet {
   const wallet = new HDTaprootMuSig2Wallet();
@@ -32,7 +34,7 @@ describe('MuSig2 compatibility modes', () => {
     assert.ok(descriptor.includes(`${SIGNER_1_DESCRIPTOR}/<0;1>/*`));
     assert.ok(descriptor.includes(`${SIGNER_2_DESCRIPTOR}/<0;1>/*`));
     assert.ok(!descriptor.includes(')/<0;1>/*)'));
-    assert.strictEqual(wallet._getExternalAddressByIndex(0), 'bc1pama7qhrgse8dsycaglnfwyfyv7kpjs552zwv5nfa4wy36qsasurskp4z3c');
+    assert.strictEqual(wallet._getExternalAddressByIndex(0), NUNCHUK_RECEIVE_0);
   });
 
   it('supports an explicit COLDCARD aggregate-first BIP328 vault using the same BIP87 signer accounts', () => {
@@ -50,6 +52,8 @@ describe('MuSig2 compatibility modes', () => {
 
     const nunchukAddress = nunchuk._getExternalAddressByIndex(0);
     const coldcardAddress = coldcard._getExternalAddressByIndex(0);
+    assert.strictEqual(nunchukAddress, NUNCHUK_RECEIVE_0);
+    assert.strictEqual(coldcardAddress, COLDCARD_RECEIVE_0);
     assert.notStrictEqual(coldcardAddress, nunchukAddress);
 
     const accountParticipantKeys = coldcard.getParticipants().map(participant => participant.publicKeyHex);
@@ -60,7 +64,7 @@ describe('MuSig2 compatibility modes', () => {
 
     const restored = HDTaprootMuSig2Wallet.fromJson(JSON.stringify(coldcard));
     assert.strictEqual(restored.getDerivationMode(), 'legacy-bip328');
-    assert.strictEqual(restored._getExternalAddressByIndex(0), coldcardAddress);
+    assert.strictEqual(restored._getExternalAddressByIndex(0), COLDCARD_RECEIVE_0);
     assert.strictEqual(restored.getBIP390Descriptor(), coldcard.getBIP390Descriptor());
   });
 
