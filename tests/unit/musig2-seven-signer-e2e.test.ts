@@ -9,13 +9,18 @@ import {
   createLocalMuSig2Round2Response,
   getLocalMuSig2SignerMatches,
 } from '../../blue_modules/musig2/local-signer';
-import { getMuSig2NonceProgress, mergeMuSig2Round1Psbt } from '../../blue_modules/musig2/psbt';
+import {
+  getMuSig2NonceProgress,
+  getMuSig2ParticipantSetsForInput,
+  mergeMuSig2Round1Psbt,
+} from '../../blue_modules/musig2/psbt';
 import { getMuSig2PartialSignatureProgress, mergeMuSig2Round2Psbt } from '../../blue_modules/musig2/round2';
 import {
   createMuSig2TaprootSignerWallet,
   getMuSig2SignerDerivationPath,
   taprootWalletToMuSig2KeyExpression,
 } from '../../blue_modules/musig2/vault';
+import { uint8ArrayToHex } from '../../blue_modules/uint8array-extras';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
 
 bitcoin.initEccLib(ecc);
@@ -32,13 +37,14 @@ function createSevenLocalSigners() {
 }
 
 describe('MuSig2 7-of-7 end-to-end signing', () => {
-  it('carries independent BIP87 signer accounts through both rounds and finalizes a two-input Taproot transaction', () => {
+  it('derives seven BIP87 participant children per input, completes both rounds, and finalizes Taproot', () => {
     const signers = createSevenLocalSigners();
     assert.deepStrictEqual(signers.map(signer => signer.getDerivationPath()).sort(), [...SIGNER_ACCOUNT_PATHS].sort());
 
     const vault = new HDTaprootMuSig2Wallet();
     vault.setParticipantKeyExpressions(signers.map(taprootWalletToMuSig2KeyExpression));
 
+    assert.strictEqual(vault.getDerivationMode(), 'bip390-derived-participants');
     assert.strictEqual(vault.getSignerCount(), SIGNER_COUNT);
     assert.deepStrictEqual(
       vault.getParticipants().map(participant => participant.derivationPath).sort(),
@@ -67,6 +73,27 @@ describe('MuSig2 7-of-7 end-to-end signing', () => {
       [...SIGNER_ACCOUNT_PATHS].sort(),
     );
 
+    const input0Set = getMuSig2ParticipantSetsForInput(round1Psbt, 0);
+    const input1Set = getMuSig2ParticipantSetsForInput(round1Psbt, 1);
+    assert.strictEqual(input0Set.length, 1);
+    assert.strictEqual(input1Set.length, 1);
+    assert.strictEqual(input0Set[0].participantPublicKeys.length, SIGNER_COUNT);
+    assert.strictEqual(input1Set[0].participantPublicKeys.length, SIGNER_COUNT);
+    assert.notDeepStrictEqual(
+      input0Set[0].participantPublicKeys.map(uint8ArrayToHex),
+      input1Set[0].participantPublicKeys.map(uint8ArrayToHex),
+    );
+    assert.notStrictEqual(uint8ArrayToHex(input0Set[0].aggregatePublicKey), uint8ArrayToHex(input1Set[0].aggregatePublicKey));
+
+    assert.deepStrictEqual(
+      round1Psbt.data.inputs[0].tapBip32Derivation?.map(item => item.path).sort(),
+      SIGNER_ACCOUNT_PATHS.map(path => `${path}/0/0`).sort(),
+    );
+    assert.deepStrictEqual(
+      round1Psbt.data.inputs[1].tapBip32Derivation?.map(item => item.path).sort(),
+      SIGNER_ACCOUNT_PATHS.map(path => `${path}/0/1`).sort(),
+    );
+
     const matches = getLocalMuSig2SignerMatches(vault, signers);
     assert.strictEqual(matches.length, SIGNER_COUNT);
     assert.deepStrictEqual(
@@ -84,6 +111,14 @@ describe('MuSig2 7-of-7 end-to-end signing', () => {
         () => new Uint8Array(32).fill(match.participantIndex + 1),
       );
       nonceStates.set(match.participant.publicKeyHex.toLowerCase(), response.nonces);
+      assert.notStrictEqual(
+        uint8ArrayToHex(response.nonces[0].participantPublicKey),
+        match.participant.publicKeyHex.toLowerCase(),
+      );
+      assert.notStrictEqual(
+        uint8ArrayToHex(response.nonces[0].participantPublicKey),
+        uint8ArrayToHex(response.nonces[1].participantPublicKey),
+      );
       coordinator = mergeMuSig2Round1Psbt(coordinator, response.psbt).psbt;
     }
 
