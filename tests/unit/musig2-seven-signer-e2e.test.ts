@@ -23,27 +23,27 @@ bitcoin.initEccLib(ecc);
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const SIGNER_COUNT = 7;
 const INPUT_COUNT = 2;
-const VAULT_ACCOUNT_INDEX = 2;
-const VAULT_ACCOUNT_PATH = getMuSig2SignerDerivationPath(VAULT_ACCOUNT_INDEX);
+const SIGNER_ACCOUNT_PATHS = Array.from({ length: SIGNER_COUNT }, (_, index) => getMuSig2SignerDerivationPath(index));
 
 function createSevenLocalSigners() {
   return Array.from({ length: SIGNER_COUNT }, (_, index) =>
-    createMuSig2TaprootSignerWallet(MNEMONIC, `musig2-seven-signer-${index + 1}`, VAULT_ACCOUNT_PATH),
+    createMuSig2TaprootSignerWallet(MNEMONIC, `musig2-seven-signer-${index + 1}`, SIGNER_ACCOUNT_PATHS[index]),
   );
 }
 
 describe('MuSig2 7-of-7 end-to-end signing', () => {
-  it("carries the vault-owned BIP87 account through both rounds and finalizes a two-input Taproot transaction", () => {
+  it('carries independent BIP87 signer accounts through both rounds and finalizes a two-input Taproot transaction', () => {
     const signers = createSevenLocalSigners();
-    assert.strictEqual(signers.every(signer => signer.getDerivationPath() === VAULT_ACCOUNT_PATH), true);
+    assert.deepStrictEqual(signers.map(signer => signer.getDerivationPath()).sort(), [...SIGNER_ACCOUNT_PATHS].sort());
 
     const vault = new HDTaprootMuSig2Wallet();
     vault.setParticipantKeyExpressions(signers.map(taprootWalletToMuSig2KeyExpression));
 
     assert.strictEqual(vault.getSignerCount(), SIGNER_COUNT);
-    assert.strictEqual(vault.getAccountIndex(), VAULT_ACCOUNT_INDEX);
-    assert.strictEqual(vault.getSignerAccountDerivationPath(), VAULT_ACCOUNT_PATH);
-    assert.strictEqual(vault.getParticipants().every(participant => participant.derivationPath === VAULT_ACCOUNT_PATH), true);
+    assert.deepStrictEqual(
+      vault.getParticipants().map(participant => participant.derivationPath).sort(),
+      [...SIGNER_ACCOUNT_PATHS].sort(),
+    );
 
     const fundingAddress0 = vault._getExternalAddressByIndex(0);
     const fundingAddress1 = vault._getExternalAddressByIndex(1);
@@ -62,11 +62,17 @@ describe('MuSig2 7-of-7 end-to-end signing', () => {
     const round1Psbt = transaction.psbt;
     assert.strictEqual(round1Psbt.inputCount, INPUT_COUNT);
     assert.strictEqual(round1Psbt.data.globalMap.globalXpub?.length, SIGNER_COUNT);
-    assert.strictEqual(round1Psbt.data.globalMap.globalXpub?.every(item => item.path === VAULT_ACCOUNT_PATH), true);
+    assert.deepStrictEqual(
+      round1Psbt.data.globalMap.globalXpub?.map(item => item.path).sort(),
+      [...SIGNER_ACCOUNT_PATHS].sort(),
+    );
 
     const matches = getLocalMuSig2SignerMatches(vault, signers);
     assert.strictEqual(matches.length, SIGNER_COUNT);
-    assert.strictEqual(matches.every(match => match.wallet.getDerivationPath() === VAULT_ACCOUNT_PATH), true);
+    assert.deepStrictEqual(
+      matches.map(match => match.wallet.getDerivationPath()).sort(),
+      [...SIGNER_ACCOUNT_PATHS].sort(),
+    );
 
     let coordinator = bitcoin.Psbt.fromBase64(round1Psbt.toBase64());
     const nonceStates = new Map<string, LocalMuSig2NonceState[]>();
