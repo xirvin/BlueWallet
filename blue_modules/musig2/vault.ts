@@ -4,6 +4,7 @@ import ecc from '../noble_ecc';
 import { uint8ArrayToHex } from '../uint8array-extras';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import {
+  HDTaprootMuSig2Wallet,
   MuSig2ParticipantMetadata,
   parseMuSig2ParticipantKeyExpression,
 } from '../../class/wallets/hd-taproot-musig2-wallet';
@@ -81,6 +82,83 @@ export function clampMuSig2SignerCount(count: number): number {
   return Math.min(MUSIG2_MAX_SIGNERS, Math.max(MUSIG2_MIN_SIGNERS, Math.trunc(count)));
 }
 
+function normalizeMasterFingerprint(masterFingerprint: string): string {
+  const normalized = masterFingerprint.trim().toLowerCase();
+  if (!/^[0-9a-f]{8}$/.test(normalized)) {
+    throw new Error('MuSig2 signer fingerprint must be exactly 8 hexadecimal characters');
+  }
+  return normalized;
+}
+
+export function getMuSig2LocalSignerMasterFingerprint(wallet: HDTaprootWallet): string {
+  const root = bip32.fromSeed(wallet._getSeed());
+  return uint8ArrayToHex(root.fingerprint).toLowerCase();
+}
+
+export function getUsedMuSig2AccountIndexesForFingerprint(
+  masterFingerprint: string,
+  vaults: HDTaprootMuSig2Wallet[],
+): number[] {
+  const fingerprint = normalizeMasterFingerprint(masterFingerprint);
+  const used = new Set<number>();
+
+  for (const vault of vaults) {
+    for (const participant of vault.getParticipants()) {
+      if (participant.masterFingerprint?.toLowerCase() !== fingerprint || !participant.derivationPath) continue;
+      try {
+        const derivation = parseMuSig2SignerDerivationPath(participant.derivationPath);
+        if (derivation.scheme === 'nunchuk-bip87') used.add(derivation.accountIndex);
+      } catch {
+        // Ignore unrelated/custom historical participant paths here. The vault
+        // validator is responsible for deciding whether they can be used.
+      }
+    }
+  }
+
+  return [...used].sort((a, b) => a - b);
+}
+
+export function isMuSig2AccountIndexUsedForFingerprint(
+  masterFingerprint: string,
+  accountIndex: number,
+  vaults: HDTaprootMuSig2Wallet[],
+): boolean {
+  return getUsedMuSig2AccountIndexesForFingerprint(masterFingerprint, vaults).includes(accountIndex);
+}
+
+export function getNextUnusedMuSig2AccountIndexForFingerprint(
+  masterFingerprint: string,
+  vaults: HDTaprootMuSig2Wallet[],
+): number {
+  const used = new Set(getUsedMuSig2AccountIndexesForFingerprint(masterFingerprint, vaults));
+  for (let accountIndex = 0; accountIndex <= MUSIG2_MAX_ACCOUNT_INDEX; accountIndex++) {
+    if (!used.has(accountIndex)) return accountIndex;
+  }
+  throw new Error('No unused MuSig2 BIP87 account indexes remain for this signer');
+}
+
+export function assertMuSig2AccountAvailableForFingerprint(
+  masterFingerprint: string,
+  accountIndex: number,
+  vaults: HDTaprootMuSig2Wallet[],
+): void {
+  if (isMuSig2AccountIndexUsedForFingerprint(masterFingerprint, accountIndex, vaults)) {
+    throw new Error(
+      `MuSig2 account ${accountIndex} is already used by signer ${normalizeMasterFingerprint(masterFingerprint).toUpperCase()} in another vault`,
+    );
+  }
+}
+
+export function assertMuSig2ParticipantAccountAvailable(
+  participant: MuSig2ParticipantMetadata,
+  vaults: HDTaprootMuSig2Wallet[],
+): void {
+  if (!participant.masterFingerprint || !participant.derivationPath) return;
+  const derivation = parseMuSig2SignerDerivationPath(participant.derivationPath);
+  if (derivation.scheme !== 'nunchuk-bip87') return;
+  assertMuSig2AccountAvailableForFingerprint(participant.masterFingerprint, derivation.accountIndex, vaults);
+}
+
 export function normalizeMuSig2VaultSigner(
   input: string,
   requiredDerivationPath?: string,
@@ -126,7 +204,7 @@ export function validateMuSig2VaultSigners(
 
   const derivationPaths = new Set(normalized.map(item => item.participant.derivationPath));
   if (derivationPaths.size !== 1) {
-    throw new Error("All MuSig2 Vault signers must use the same m/87'/0'/account' origin");
+    throw new Error('All MuSig2 Vault signers must use the same signer account origin');
   }
 
   return normalized.map(item => item.keyExpression);
@@ -151,6 +229,83 @@ export function createMuSig2TaprootSignerWallet(
   }
   if (passphrase) wallet.setPassphrase(passphrase);
   return wallet;
+}
+
+/**
+ * Creates the account view for a new vault. If this master signer has already
+ * been used in stored BIP87 MuSig2 vaults, the next unused hardened account is
+ * selected. When another participant has already fixed the vault account,
+ * requiredDerivationPath is enforced instead.
+ */
+export function createMuSig2TaprootSignerWalletForVault(
+  mnemonic: string,
+  passphrase: string,
+  vaults: HDTaprootMuSig2Wallet[],
+  requiredDerivationPath?: string,
+): HDTaprootWallet {
+  const probe = createMuSig2TaprootSignerWallet(mnemonic, passphrase);
+  const fingerprint = getMuSig2LocalSignerMasterFingerprint(probe);
+
+  let targetPath: string;
+  if (requiredDerivationPath) {
+    const required = parseMuSig2SignerDerivationPath(requiredDerivationPath);
+    if (required.scheme === 'nunchuk-bip87') {
+      assertMuSig2AccountAvailableForFingerprint(fingerprint, required.accountIndex, vaults);
+    }
+    targetPath = required.path;
+  } else {
+    targetPath = getMuSig2SignerDerivationPath(getNextUnusedMuSig2AccountIndexForFingerprint(fingerprint, vaults));
+  }
+
+  return createMuSig2TaprootSignerWallet(mnemonic, passphrase, targetPath);
+}
+
+/**
+ * Reuses the same local master seed in another MuSig2 vault by deriving a
+ * sibling BIP87 account. The source account wallet is returned unchanged only
+ * when its account has not yet been committed to another stored vault.
+ */
+export function deriveMuSig2TaprootSignerAccountWalletForVault(
+  sourceWallet: HDTaprootWallet,
+  vaults: HDTaprootMuSig2Wallet[],
+  requiredDerivationPath?: string,
+): HDTaprootWallet {
+  const fingerprint = getMuSig2LocalSignerMasterFingerprint(sourceWallet);
+  let targetPath: string;
+
+  if (requiredDerivationPath) {
+    const required = parseMuSig2SignerDerivationPath(requiredDerivationPath);
+    if (required.scheme === 'nunchuk-bip87') {
+      assertMuSig2AccountAvailableForFingerprint(fingerprint, required.accountIndex, vaults);
+    }
+    targetPath = required.path;
+  } else {
+    let current: MuSig2SignerDerivationInfo | undefined;
+    try {
+      current = parseMuSig2SignerDerivationPath(sourceWallet.getDerivationPath());
+    } catch {
+      current = undefined;
+    }
+
+    if (
+      current?.scheme === 'nunchuk-bip87' &&
+      !isMuSig2AccountIndexUsedForFingerprint(fingerprint, current.accountIndex, vaults)
+    ) {
+      targetPath = current.path;
+    } else {
+      targetPath = getMuSig2SignerDerivationPath(getNextUnusedMuSig2AccountIndexForFingerprint(fingerprint, vaults));
+    }
+  }
+
+  if (sourceWallet.getDerivationPath()?.replace(/[hH]/g, "'") === targetPath) return sourceWallet;
+
+  const accountWallet = createMuSig2TaprootSignerWallet(
+    sourceWallet.getSecret(),
+    sourceWallet.getPassphrase() ?? '',
+    targetPath,
+  );
+  accountWallet.setLabel(sourceWallet.getLabel());
+  return accountWallet;
 }
 
 export function isMuSig2TaprootSignerMnemonic(input: string): boolean {
