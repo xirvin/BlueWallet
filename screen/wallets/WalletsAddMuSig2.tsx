@@ -35,6 +35,10 @@ const WalletsAddMuSig2: React.FC = () => {
     });
   }, [navigation, signerCount]);
 
+  const importNunchuk = useCallback(() => {
+    navigation.navigate('ImportWallet', { label: '' });
+  }, [navigation]);
+
   const start = useCallback(() => {
     navigation.navigate('WalletsAddMuSig2Step2', { signerCount, walletLabel });
   }, [navigation, signerCount, walletLabel]);
@@ -59,18 +63,26 @@ const WalletsAddMuSig2: React.FC = () => {
         </Text>
         <BlueSpacing20 />
         <Text style={[styles.text, stylesHook.text]}>
-          Keep each Vault Key on a separate signer when possible. BlueWallet coordinates BIP373 signing rounds and never needs the
-          signers' private keys or secret nonces.
+          New BIP87 Vaults derive every signer to the address child before MuSig2 KeySort/KeyAgg, matching BIP390 and Nunchuk Value Keyset wallets. BlueWallet coordinates BIP373 signing rounds without storing external signer private keys or secret nonces.
         </Text>
       </View>
 
-      <ListItem
-        testID="MuSig2VaultSettings"
-        onPress={openSettings}
-        title="Vault settings"
-        subtitle={`${MUSIG2_WALLET_TYPE_LABEL}, ${signerCount} of ${signerCount}`}
-        chevron
-      />
+      <View>
+        <ListItem
+          testID="MuSig2VaultSettings"
+          onPress={openSettings}
+          title="Vault settings"
+          subtitle={`${MUSIG2_WALLET_TYPE_LABEL}, ${signerCount} of ${signerCount}`}
+          chevron
+        />
+        <ListItem
+          testID="MuSig2ImportNunchuk"
+          onPress={importNunchuk}
+          title="Import Nunchuk MuSig2 wallet"
+          subtitle="BSMS 1.0, descriptor QR, BBQr, or file"
+          chevron
+        />
+      </View>
 
       <View style={styles.buttonContainer}>
         <Button testID="MuSig2LetsStart" title="Let's Start" onPress={start} />
