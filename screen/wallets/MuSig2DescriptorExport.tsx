@@ -77,18 +77,20 @@ const MuSig2DescriptorExport: React.FC = () => {
       </View>
 
       <SettingsSection title="Choose destination">
-        <SettingsListItem
-          iconName="paperPlane"
-          title="Nunchuk"
-          subtitle="Plain descriptor QR and BSMS 1.0 backup"
-          testID="MuSig2DescriptorExportNunchuk"
-          chevron
-          onPress={() => navigation.navigate('MuSig2NunchukExport', { walletID })}
-        />
+        {muSig2Wallet?.usesDerivedParticipantKeys() && (
+          <SettingsListItem
+            iconName="paperPlane"
+            title="Nunchuk"
+            subtitle="Descriptor QR, BBQr, and BSMS 1.0 backup"
+            testID="MuSig2DescriptorExportNunchuk"
+            chevron
+            onPress={() => navigation.navigate('MuSig2NunchukExport', { walletID })}
+          />
+        )}
         <SettingsListItem
           iconName="tools"
           title="Standard descriptor QR"
-          subtitle="Plain checksummed BIP390 descriptor"
+          subtitle="Checksummed BIP390 descriptor"
           testID="MuSig2DescriptorExportStandardQR"
           chevron
           bottomDivider={false}
@@ -99,7 +101,7 @@ const MuSig2DescriptorExport: React.FC = () => {
       <SettingsSection title="Descriptor file">
         <View style={styles.fileContent}>
           <SettingsFootnote>
-            Save the exact checksummed descriptor as a text file for Bitcoin Core and other BIP390-compatible software.
+            Save the exact checksummed descriptor as a text file for BIP390-compatible software. Nunchuk-specific export uses its own descriptor spelling and BSMS verification address.
           </SettingsFootnote>
           <View style={styles.fileButtonSpacer} />
           <SaveFileButton fileName={fileName} fileContent={`${descriptor}\n`} style={[styles.exportButton, { backgroundColor: colors.mainColor }]}>
