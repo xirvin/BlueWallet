@@ -4,12 +4,17 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import {
+  getMuSig2CompatibilityDescription,
+  getMuSig2CompatibilityLabel,
+} from '../../blue_modules/musig2/compatibility';
+import {
   MUSIG2_WALLET_TYPE_LABEL,
   assertMuSig2ParticipantAccountAvailable,
   taprootWalletToMuSig2KeyExpression,
   validateMuSig2VaultSigners,
 } from '../../blue_modules/musig2/vault';
 import { HDTaprootMuSig2Wallet } from '../../class/wallets/hd-taproot-musig2-wallet';
+import type { MuSig2DerivationMode } from '../../class/wallets/hd-taproot-musig2-wallet';
 import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 import presentAlert from '../../components/Alert';
 import BlueText from '../../components/BlueText';
@@ -22,12 +27,15 @@ import { useSettings } from '../../hooks/context/useSettings';
 import { AddWalletStackParamList } from '../../navigation/AddWalletStack';
 
 type NavigationProps = NativeStackNavigationProp<AddWalletStackParamList, 'MuSig2DescriptorReview'>;
-type RouteProps = RouteProp<AddWalletStackParamList, 'MuSig2DescriptorReview'>;
+type MuSig2DescriptorReviewParams = AddWalletStackParamList['MuSig2DescriptorReview'] & {
+  derivationMode: MuSig2DerivationMode;
+};
+type RouteProps = RouteProp<{ MuSig2DescriptorReview: MuSig2DescriptorReviewParams }, 'MuSig2DescriptorReview'>;
 
 const MuSig2DescriptorReview: React.FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProps>();
-  const { signerCount, walletLabel, signerExpressions } = useRoute<RouteProps>().params;
+  const { signerCount, walletLabel, signerExpressions, derivationMode } = useRoute<RouteProps>().params;
   const { addAndSaveWallet, wallets } = useStorage();
   const { isElectrumDisabled } = useSettings();
   const [isSaving, setIsSaving] = useState(false);
@@ -37,8 +45,9 @@ const MuSig2DescriptorReview: React.FC = () => {
     const result = new HDTaprootMuSig2Wallet();
     result.setLabel(walletLabel);
     result.setParticipantKeyExpressions(normalized);
+    result.setDerivationMode(derivationMode);
     return result;
-  }, [signerCount, signerExpressions, walletLabel]);
+  }, [derivationMode, signerCount, signerExpressions, walletLabel]);
 
   const participants = useMemo(() => wallet.getParticipants(), [wallet]);
   const existingVaults = useMemo(
@@ -63,6 +72,8 @@ const MuSig2DescriptorReview: React.FC = () => {
 
   const descriptor = useMemo(() => wallet.getBIP390Descriptor(), [wallet]);
   const receiveAddress = useMemo(() => wallet._getExternalAddressByIndex(0), [wallet]);
+  const compatibilityLabel = getMuSig2CompatibilityLabel(derivationMode);
+  const isNunchukCompatible = derivationMode === 'bip390-derived-participants';
 
   const createVault = useCallback(async () => {
     setIsSaving(true);
@@ -91,7 +102,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         Review MuSig2 Vault
       </BlueText>
       <BlueText style={styles.description}>
-        Confirm the quorum, Taproot wallet type, each signer's BIP87 account origin, and BIP390 descriptor before saving. All signers are required for every spend.
+        Confirm the quorum, Taproot wallet type, MuSig2 compatibility model, each signer's BIP87 account origin, and descriptor before saving. All signers are required for every spend.
       </BlueText>
 
       <View style={styles.details}>
@@ -101,8 +112,14 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
         <BlueText bold>Wallet type</BlueText>
         <BlueText>{MUSIG2_WALLET_TYPE_LABEL}</BlueText>
+        <BlueText bold>MuSig2 type</BlueText>
+        <BlueText>{compatibilityLabel}</BlueText>
         <BlueText bold>Derivation model</BlueText>
-        <BlueText>BIP390 · derive signer children before MuSig2 aggregation</BlueText>
+        <BlueText>
+          {isNunchukCompatible
+            ? 'BIP390 · derive signer children before MuSig2 aggregation'
+            : 'BIP390/BIP328 · aggregate signer account keys before /change/index derivation'}
+        </BlueText>
         <BlueText bold>Signer BIP87 accounts</BlueText>
         {participants.map((participant, index) => (
           <BlueText key={`${participant.publicKeyHex}-${index}`} selectable>
@@ -135,7 +152,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
       </View>
       <BlueText style={styles.note}>
-        Each BIP87 account xpub derives its /change/index child first. Those child public keys are sorted, aggregated with MuSig2, and then Taproot-tweaked. This is the same address model used by Nunchuk Value Keyset MuSig2 wallets.
+        {getMuSig2CompatibilityDescription(derivationMode)} The selected derivation mode is serialized with this vault and is not exposed as a post-creation toggle, because changing it would change the wallet's address chain.
       </BlueText>
 
       <BlueSpacing20 />
