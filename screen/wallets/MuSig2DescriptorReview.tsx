@@ -5,6 +5,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import {
   MUSIG2_WALLET_TYPE_LABEL,
+  assertMuSig2ParticipantAccountAvailable,
   taprootWalletToMuSig2KeyExpression,
   validateMuSig2VaultSigners,
 } from '../../blue_modules/musig2/vault';
@@ -39,7 +40,12 @@ const MuSig2DescriptorReview: React.FC = () => {
     return result;
   }, [signerCount, signerExpressions, walletLabel]);
 
-  const signerDerivationPath = wallet.getParticipants()[0]?.derivationPath ?? 'Unknown';
+  const existingVaults = useMemo(
+    () => wallets.filter(candidate => candidate.type === HDTaprootMuSig2Wallet.type) as HDTaprootMuSig2Wallet[],
+    [wallets],
+  );
+  const signerDerivationPath = wallet.getSignerAccountDerivationPath() ?? 'Unknown';
+  const accountIndex = wallet.getAccountIndex();
 
   const localSignerCount = useMemo(
     () =>
@@ -62,6 +68,9 @@ const MuSig2DescriptorReview: React.FC = () => {
   const createVault = useCallback(async () => {
     setIsSaving(true);
     try {
+      for (const participant of wallet.getParticipants()) {
+        assertMuSig2ParticipantAccountAvailable(participant, existingVaults);
+      }
       if (!isElectrumDisabled) await wallet.fetchBalance();
       await addAndSaveWallet(wallet);
       navigation.getParent()?.goBack();
@@ -69,7 +78,7 @@ const MuSig2DescriptorReview: React.FC = () => {
       presentAlert({ title: 'Could not create MuSig2 Vault', message: error?.message ?? String(error) });
       setIsSaving(false);
     }
-  }, [addAndSaveWallet, isElectrumDisabled, navigation, wallet]);
+  }, [addAndSaveWallet, existingVaults, isElectrumDisabled, navigation, wallet]);
 
   const stylesHook = StyleSheet.create({
     localSignerCard: { borderColor: colors.cardBorderColor, backgroundColor: colors.cardSectionBackground },
@@ -83,7 +92,7 @@ const MuSig2DescriptorReview: React.FC = () => {
         Review MuSig2 Vault
       </BlueText>
       <BlueText style={styles.description}>
-        Confirm the quorum, Taproot wallet type, signer origins, and BIP390 descriptor before saving. All signers are required for every spend.
+        Confirm the quorum, Taproot wallet type, BIP87 vault account, signer origins, and BIP390 descriptor before saving. All signers are required for every spend.
       </BlueText>
 
       <View style={styles.details}>
@@ -93,6 +102,12 @@ const MuSig2DescriptorReview: React.FC = () => {
         </BlueText>
         <BlueText bold>Wallet type</BlueText>
         <BlueText>{MUSIG2_WALLET_TYPE_LABEL}</BlueText>
+        {accountIndex !== undefined && (
+          <>
+            <BlueText bold>BIP87 wallet account</BlueText>
+            <BlueText>{accountIndex}</BlueText>
+          </>
+        )}
         <BlueText bold>Signer account origin</BlueText>
         <BlueText>{signerDerivationPath}</BlueText>
         <BlueText bold>First receive address</BlueText>
