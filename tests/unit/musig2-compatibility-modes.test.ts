@@ -8,6 +8,8 @@ const SIGNER_1 =
   "[32b14325/87'/0'/2']xpub6CV536smmJ4Nu15RWBJiF5oagPjfVMon4dAMdZA6di2BnbVVny8o9a7ENATNS3eX8bUTHXncBXe2SCQLDRXrY8eNq4wmbCVQEw4CNjMzWHm";
 const SIGNER_2 =
   "[52c4ead8/87'/0'/2']xpub6DWaGeRp9hTVLL2ei2x3Gd6ywGVhi5wFvStKGjDLhrp5h4gbgCejZRpa3SghQhaAdohDXpsRHFReFTXAs2Q3WBXDpPCAVyZD5B7VQ8mJjD1";
+const SIGNER_1_DESCRIPTOR = SIGNER_1.replace(/'/g, 'h');
+const SIGNER_2_DESCRIPTOR = SIGNER_2.replace(/'/g, 'h');
 
 function createNunchukWallet(): HDTaprootMuSig2Wallet {
   const wallet = new HDTaprootMuSig2Wallet();
@@ -27,8 +29,8 @@ describe('MuSig2 compatibility modes', () => {
     const descriptor = wallet.getBIP390Descriptor(false);
 
     assert.strictEqual(wallet.getDerivationMode(), 'bip390-derived-participants');
-    assert.ok(descriptor.includes(`${SIGNER_1}/<0;1>/*`));
-    assert.ok(descriptor.includes(`${SIGNER_2}/<0;1>/*`));
+    assert.ok(descriptor.includes(`${SIGNER_1_DESCRIPTOR}/<0;1>/*`));
+    assert.ok(descriptor.includes(`${SIGNER_2_DESCRIPTOR}/<0;1>/*`));
     assert.ok(!descriptor.includes(')/<0;1>/*)'));
     assert.strictEqual(wallet._getExternalAddressByIndex(0), 'bc1pama7qhrgse8dsycaglnfwyfyv7kpjs552zwv5nfa4wy36qsasurskp4z3c');
   });
@@ -40,11 +42,11 @@ describe('MuSig2 compatibility modes', () => {
 
     assert.strictEqual(coldcard.getDerivationMode(), 'legacy-bip328');
     assert.ok(descriptor.startsWith('tr(musig('));
-    assert.ok(descriptor.includes(SIGNER_1));
-    assert.ok(descriptor.includes(SIGNER_2));
+    assert.ok(descriptor.includes(SIGNER_1_DESCRIPTOR));
+    assert.ok(descriptor.includes(SIGNER_2_DESCRIPTOR));
     assert.ok(descriptor.endsWith(')/<0;1>/*)'));
-    assert.ok(!descriptor.includes(`${SIGNER_1}/<0;1>/*`));
-    assert.ok(!descriptor.includes(`${SIGNER_2}/<0;1>/*`));
+    assert.ok(!descriptor.includes(`${SIGNER_1_DESCRIPTOR}/<0;1>/*`));
+    assert.ok(!descriptor.includes(`${SIGNER_2_DESCRIPTOR}/<0;1>/*`));
 
     const nunchukAddress = nunchuk._getExternalAddressByIndex(0);
     const coldcardAddress = coldcard._getExternalAddressByIndex(0);
