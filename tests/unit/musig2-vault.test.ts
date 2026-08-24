@@ -9,10 +9,16 @@ import {
   MUSIG2_MAX_SIGNERS,
   MUSIG2_MIN_SIGNERS,
   MUSIG2_SIGNER_DERIVATION,
+  assertMuSig2ParticipantAccountAvailable,
   assertMuSig2SignerCount,
   clampMuSig2SignerCount,
   createMuSig2TaprootSignerWallet,
+  createMuSig2TaprootSignerWalletForVault,
+  deriveMuSig2TaprootSignerAccountWalletForVault,
+  getMuSig2LocalSignerMasterFingerprint,
   getMuSig2SignerDerivationPath,
+  getNextUnusedMuSig2AccountIndexForFingerprint,
+  getUsedMuSig2AccountIndexesForFingerprint,
   isMuSig2TaprootSignerMnemonic,
   normalizeMuSig2VaultSigner,
   parseMuSig2SignerDerivationPath,
@@ -26,6 +32,9 @@ import { HDTaprootWallet } from '../../class/wallets/hd-taproot-wallet';
 
 const bip32 = BIP32Factory(ecc);
 bitcoin.initEccLib(ecc);
+
+const MNEMONIC_A = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const MNEMONIC_B = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
 
 const LEGACY_BSMS_SIGNER_1 =
   "[52c4ead8/86'/0'/0']xpub6CTWUpMsz6J8agBdjV6PqsCZfdrgtQj7nasH5D4APNRoiZc3xcFCYFAumrWLcuz9U4EagrhZgMqRW3tibSvt5ie5EwzguZ6NMQrVXpEFBz9";
@@ -44,6 +53,22 @@ function makeSignerExpression(index: number, accountIndex = 0): string {
   return `[${uint8ArrayToHex(root.fingerprint)}/87'/0'/${accountIndex}']${account.toBase58()}`;
 }
 
+function createLocalVault(accountIndex: number): {
+  vault: HDTaprootMuSig2Wallet;
+  signerA: HDTaprootWallet;
+  signerB: HDTaprootWallet;
+} {
+  const path = getMuSig2SignerDerivationPath(accountIndex);
+  const signerA = createMuSig2TaprootSignerWallet(MNEMONIC_A, '', path);
+  const signerB = createMuSig2TaprootSignerWallet(MNEMONIC_B, '', path);
+  const vault = new HDTaprootMuSig2Wallet();
+  vault.setParticipantKeyExpressions([
+    taprootWalletToMuSig2KeyExpression(signerA),
+    taprootWalletToMuSig2KeyExpression(signerB),
+  ]);
+  return { vault, signerA, signerB };
+}
+
 describe('MuSig2 Vault UX rules', () => {
   it('allows only locked N-of-N signer counts from 2 through 7', () => {
     for (let count = MUSIG2_MIN_SIGNERS; count <= MUSIG2_MAX_SIGNERS; count++) {
@@ -55,7 +80,7 @@ describe('MuSig2 Vault UX rules', () => {
     assert.strictEqual(clampMuSig2SignerCount(9), 7);
   });
 
-  it("uses Nunchuk's m/87'/0'/account' family and defaults new local signers to account 0", () => {
+  it("uses Nunchuk's m/87'/0'/account' family and defaults a previously unused signer to account 0", () => {
     assert.strictEqual(MUSIG2_SIGNER_DERIVATION, "m/87'/0'/0'");
     assert.strictEqual(getMuSig2SignerDerivationPath(2), "m/87'/0'/2'");
     assert.deepStrictEqual(parseMuSig2SignerDerivationPath("m/87h/0h/2h"), {
@@ -63,6 +88,69 @@ describe('MuSig2 Vault UX rules', () => {
       accountIndex: 2,
       scheme: 'nunchuk-bip87',
     });
+
+    const signer = createMuSig2TaprootSignerWalletForVault(MNEMONIC_A, '', []);
+    assert.strictEqual(signer.getDerivationPath(), "m/87'/0'/0'");
+  });
+
+  it('stores the common BIP87 account index as vault-level metadata', () => {
+    const expressions = Array.from({ length: 2 }, (_, index) => makeSignerExpression(index, 2));
+    const wallet = new HDTaprootMuSig2Wallet();
+    wallet.setParticipantKeyExpressions(expressions);
+
+    assert.strictEqual(wallet.getAccountIndex(), 2);
+    assert.strictEqual(wallet.getSignerAccountDerivationPath(), "m/87'/0'/2'");
+
+    const exported = JSON.parse(wallet.getCoordinatorExport());
+    assert.strictEqual(exported.accountIndex, 2);
+
+    const restored = HDTaprootMuSig2Wallet.fromJson(JSON.stringify(wallet));
+    assert.strictEqual(restored.getAccountIndex(), 2);
+    assert.strictEqual(restored.getSignerAccountDerivationPath(), "m/87'/0'/2'");
+  });
+
+  it('allocates a new hardened account when the same master signers create another vault', () => {
+    const first = createLocalVault(0);
+    const storedVaults = [first.vault];
+
+    const fingerprintA = getMuSig2LocalSignerMasterFingerprint(first.signerA);
+    const fingerprintB = getMuSig2LocalSignerMasterFingerprint(first.signerB);
+    assert.deepStrictEqual(getUsedMuSig2AccountIndexesForFingerprint(fingerprintA, storedVaults), [0]);
+    assert.deepStrictEqual(getUsedMuSig2AccountIndexesForFingerprint(fingerprintB, storedVaults), [0]);
+    assert.strictEqual(getNextUnusedMuSig2AccountIndexForFingerprint(fingerprintA, storedVaults), 1);
+
+    const signerAAccount1 = deriveMuSig2TaprootSignerAccountWalletForVault(first.signerA, storedVaults);
+    const signerBAccount1 = deriveMuSig2TaprootSignerAccountWalletForVault(
+      first.signerB,
+      storedVaults,
+      signerAAccount1.getDerivationPath(),
+    );
+
+    assert.strictEqual(signerAAccount1.getDerivationPath(), "m/87'/0'/1'");
+    assert.strictEqual(signerBAccount1.getDerivationPath(), "m/87'/0'/1'");
+    assert.notStrictEqual(signerAAccount1.getXpub(), first.signerA.getXpub());
+    assert.notStrictEqual(signerBAccount1.getXpub(), first.signerB.getXpub());
+
+    const second = new HDTaprootMuSig2Wallet();
+    second.setParticipantKeyExpressions([
+      taprootWalletToMuSig2KeyExpression(signerAAccount1),
+      taprootWalletToMuSig2KeyExpression(signerBAccount1),
+    ]);
+
+    assert.strictEqual(second.getAccountIndex(), 1);
+    assert.notStrictEqual(second.getBIP390Descriptor(), first.vault.getBIP390Descriptor());
+    assert.notStrictEqual(second._getExternalAddressByIndex(0), first.vault._getExternalAddressByIndex(0));
+  });
+
+  it('rejects reuse of an already committed BIP87 account for the same master signer', () => {
+    const { vault, signerA } = createLocalVault(0);
+    const participant = normalizeMuSig2VaultSigner(taprootWalletToMuSig2KeyExpression(signerA)).participant;
+
+    assert.throws(() => assertMuSig2ParticipantAccountAvailable(participant, [vault]), /account 0 is already used/);
+    assert.throws(
+      () => createMuSig2TaprootSignerWalletForVault(MNEMONIC_A, '', [vault], "m/87'/0'/0'"),
+      /account 0 is already used/,
+    );
   });
 
   it('validates complete Nunchuk-style signer sets for every supported vault size', () => {
@@ -74,6 +162,7 @@ describe('MuSig2 Vault UX rules', () => {
       wallet.setParticipantKeyExpressions(expressions);
 
       assert.strictEqual(wallet.getSignerCount(), count);
+      assert.strictEqual(wallet.getAccountIndex(), 0);
       assert.strictEqual(wallet.hasCompleteExtendedParticipantMetadata(), true);
       assert.strictEqual(wallet.getParticipants().every(participant => participant.derivationPath === MUSIG2_SIGNER_DERIVATION), true);
       assert.ok(wallet.getBIP390Descriptor().startsWith('tr(musig('));
@@ -85,15 +174,17 @@ describe('MuSig2 Vault UX rules', () => {
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setParticipantKeyExpressions(expressions);
 
+    assert.strictEqual(wallet.getAccountIndex(), 2);
     assert.strictEqual(wallet.getParticipants().every(participant => participant.derivationPath === "m/87'/0'/2'"), true);
     assert.ok(wallet.getBIP390Descriptor().includes('/87h/0h/2h]'));
   });
 
-  it('keeps existing BlueWallet BIP86 vaults recoverable without changing their addresses', () => {
+  it('keeps existing BlueWallet BIP86 vaults recoverable without assigning a BIP87 account index', () => {
     const expressions = validateMuSig2VaultSigners([LEGACY_BSMS_SIGNER_1, LEGACY_BSMS_SIGNER_2], 2);
     const wallet = new HDTaprootMuSig2Wallet();
     wallet.setParticipantKeyExpressions(expressions);
 
+    assert.strictEqual(wallet.getAccountIndex(), undefined);
     assert.strictEqual(wallet._getExternalAddressByIndex(0), LEGACY_BSMS_FIRST_ADDRESS);
     assert.strictEqual(wallet.getParticipants().every(participant => participant.derivationPath === MUSIG2_LEGACY_SIGNER_DERIVATION), true);
   });
@@ -101,7 +192,13 @@ describe('MuSig2 Vault UX rules', () => {
   it('rejects mixed MuSig2 account origins in one vault', () => {
     const account0 = makeSignerExpression(0, 0);
     const account2 = makeSignerExpression(1, 2);
-    assert.throws(() => validateMuSig2VaultSigners([account0, account2], 2), /same m\/87'\/0'\/account' origin/);
+    assert.throws(() => validateMuSig2VaultSigners([account0, account2], 2), /same signer account origin/);
+
+    const wallet = new HDTaprootMuSig2Wallet();
+    assert.throws(
+      () => wallet.setParticipantKeyExpressions([account0, account2]),
+      /same vault account index/,
+    );
   });
 
   it('includes every Nunchuk-style signer account xpub and path in a 7-of-7 signing PSBT', () => {
@@ -119,6 +216,7 @@ describe('MuSig2 Vault UX rules', () => {
       changeAddress,
     );
 
+    assert.strictEqual(wallet.getAccountIndex(), 0);
     assert.strictEqual(result.psbt.data.globalMap.globalXpub?.length, 7);
     assert.strictEqual(result.psbt.data.globalMap.globalXpub?.every(item => item.path === MUSIG2_SIGNER_DERIVATION), true);
     const roundTrip = bitcoin.Psbt.fromBase64(result.psbt.toBase64());
@@ -150,11 +248,10 @@ describe('MuSig2 Vault UX rules', () => {
   });
 
   it('imports a BIP39 seed as a local Nunchuk-style MuSig2 signer wallet', () => {
-    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    assert.strictEqual(isMuSig2TaprootSignerMnemonic(mnemonic), true);
+    assert.strictEqual(isMuSig2TaprootSignerMnemonic(MNEMONIC_A), true);
     assert.strictEqual(isMuSig2TaprootSignerMnemonic('not a valid seed phrase'), false);
 
-    const signer = createMuSig2TaprootSignerWallet(mnemonic);
+    const signer = createMuSig2TaprootSignerWallet(MNEMONIC_A);
     assert.strictEqual(signer.type, HDTaprootWallet.type);
     assert.strictEqual(signer.getDerivationPath(), MUSIG2_SIGNER_DERIVATION);
     assert.ok(signer._getExternalAddressByIndex(0).startsWith('bc1p'));
@@ -165,9 +262,8 @@ describe('MuSig2 Vault UX rules', () => {
   });
 
   it('can derive and restore a Nunchuk account-2 signer from seed words', () => {
-    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    const account0 = createMuSig2TaprootSignerWallet(mnemonic);
-    const account2 = createMuSig2TaprootSignerWallet(mnemonic, '', getMuSig2SignerDerivationPath(2));
+    const account0 = createMuSig2TaprootSignerWallet(MNEMONIC_A);
+    const account2 = createMuSig2TaprootSignerWallet(MNEMONIC_A, '', getMuSig2SignerDerivationPath(2));
 
     assert.strictEqual(account2.getDerivationPath(), "m/87'/0'/2'");
     assert.notStrictEqual(account2.getXpub(), account0.getXpub());
@@ -176,7 +272,7 @@ describe('MuSig2 Vault UX rules', () => {
 
   it('continues to recognize an existing local BIP86 signer wallet', () => {
     const signer = new HDTaprootWallet();
-    signer.setSecret('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+    signer.setSecret(MNEMONIC_A);
 
     assert.strictEqual(signer.getDerivationPath(), MUSIG2_LEGACY_SIGNER_DERIVATION);
     const expression = taprootWalletToMuSig2KeyExpression(signer);
@@ -185,9 +281,8 @@ describe('MuSig2 Vault UX rules', () => {
   });
 
   it('includes a BIP39 passphrase in the local signer identity', () => {
-    const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    const plain = createMuSig2TaprootSignerWallet(mnemonic);
-    const protectedSigner = createMuSig2TaprootSignerWallet(mnemonic, 'MuSig2 test passphrase');
+    const plain = createMuSig2TaprootSignerWallet(MNEMONIC_A);
+    const protectedSigner = createMuSig2TaprootSignerWallet(MNEMONIC_A, 'MuSig2 test passphrase');
 
     assert.notStrictEqual(protectedSigner.getXpub(), plain.getXpub());
     assert.notStrictEqual(protectedSigner._getExternalAddressByIndex(0), plain._getExternalAddressByIndex(0));
